@@ -13,7 +13,7 @@ from tavern_shared.window_chrome import _finish_dark_window, _set_window_icon, _
 from . import edits, layout2d, library
 from .catalog import Catalog
 from .preview import PreviewTracker
-from .stringcodec import StringFormatError, decode, encode
+from .stringcodec import SpawnString, StringFormatError, decode, encode
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ITEMS = os.path.join(HERE, "data", "items.json")
@@ -37,6 +37,10 @@ def _info(title, text, parent=None):
     messagebox.showinfo(title, text, parent=parent)
 
 
+def _ask(title, text, parent=None):
+    return messagebox.askyesno(title, text, parent=parent)
+
+
 _catalog = None
 
 
@@ -55,7 +59,13 @@ def _data_warning(cat):
         return "Item data is missing, so items show as numbers and can't be drawn. Reinstall the addon."
     try:  # TavernKeeper caches this server's prefab list here after Browse Prefabs
         with open(os.path.join(_data_dir(), "prefabs.json"), encoding="utf-8") as f:
-            server = {int(p["Hash"]) for p in json.load(f) if isinstance(p, dict) and "Hash" in p}
+            raw = json.load(f)
+        server = set()
+        for p in raw if isinstance(raw, list) else []:
+            if isinstance(p, (list, tuple)) and p:
+                server.add(int(p[0]))  # TavernKeeper saves [hash, name] pairs
+            elif isinstance(p, dict) and "Hash" in p:
+                server.add(int(p["Hash"]))
     except Exception:
         return None
     missing = len(server - set(cat.prefabs))
@@ -88,6 +98,9 @@ class StringBuilderTab:
         self.sel_prefab = None
         self.sel_slot = None  # (prefab, slot hash) that a double-clicked item will fill
         self.view = None  # None = pick the view that shows the item largest
+        self.fresh = False  # built with New: gets the current versioning tail; loaded strings keep their own
+        self.dirty = False  # unsaved edits
+        self._hits = []  # parts and slot markers from the last draw, for click picking
         self.zoom = 1.0
         self._row_map = {}
         self._shape_map = {}
@@ -222,6 +235,7 @@ class StringBuilderTab:
         self.canvas = tk.Canvas(p, bg="#16120e", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.canvas.bind("<Configure>", lambda e: self.draw())
+        self.canvas.bind("<Button-1>", lambda e: self.click_at(e.x, e.y))
         self.canvas.bind("<MouseWheel>", self._on_wheel)
         self.canvas.bind("<Button-4>", lambda e: self._zoom(1.15))
         self.canvas.bind("<Button-5>", lambda e: self._zoom(1 / 1.15))
@@ -230,8 +244,12 @@ class StringBuilderTab:
     def current_string(self):
         if self.ss is None:
             return ""
-        v = self.cat.versioning()
+        v = self.cat.versioning() if self.fresh else None
         return encode(self.ss, versioning=v or None)
+
+    def _confirm_discard(self):
+        return not self.dirty or _ask("Unsaved changes", "Your current string has changes that aren't saved. "
+                                      "Replace it anyway?", parent=self.frame)
 
     def load_string(self, text):
         try:
@@ -239,7 +257,9 @@ class StringBuilderTab:
         except (StringFormatError, ValueError) as e:
             _info("Not a spawn string", "That doesn't look like a spawn string.\n\n%s" % e, parent=self.frame)
             return False
-        self.ss = ss
+        if not self._confirm_discard():
+            return False
+        self.ss, self.fresh, self.dirty = ss, False, False
         self.sel_prefab, self.sel_slot = ss.root, None
         self.view, self.zoom = None, 1.0
         self.view_var.set("Auto")
@@ -247,14 +267,13 @@ class StringBuilderTab:
         return True
 
     def new(self):
-        if self.ss is not None and self.ss.original is None and not messagebox.askyesno(
-                "Start over", "Clear the current string and start a new one?", parent=self.frame):
+        if not self._confirm_discard():
             return
-        self.ss, self.sel_prefab, self.sel_slot = None, None, None
+        self.ss, self.sel_prefab, self.sel_slot, self.dirty = None, None, None, False
         self.refresh()
 
     def new_from(self, prefab_h):
-        self.ss = edits.new_string(prefab_h)
+        self.ss, self.fresh, self.dirty = edits.new_string(prefab_h), True, True
         self.sel_prefab, self.sel_slot = self.ss.root, None
         first = self.cat.slots(prefab_h)
         if first:
@@ -276,6 +295,7 @@ class StringBuilderTab:
             return
         parent, slot_h = self.sel_slot
         child = edits.attach(self.ss, parent, slot_h, prefab_h)
+        self.dirty = True
         self.sel_prefab = child
         free = [h for h, _l, _k in self.cat.slots(prefab_h)]
         self.sel_slot = (child, free[0]) if free else self._next_empty_slot()
@@ -338,7 +358,10 @@ class StringBuilderTab:
     def save_user_string(self, name):
         if self.ss is None or not name:
             return False
-        return library.add_user(user_library_path(), name, self.current_string())
+        ok = library.add_user(user_library_path(), name, self.current_string())
+        if ok:
+            self.dirty = False
+        return ok
 
     def _log(self, text, tag=""):
         try:
@@ -452,6 +475,7 @@ class StringBuilderTab:
         for h, n in self._materials:
             if n == name and h is not None:
                 edits.set_material(self.ss, self.sel_prefab, h, self.cat)
+                self.dirty = True
                 self.refresh()
                 return
 
@@ -466,17 +490,26 @@ class StringBuilderTab:
             _info("Scale", "Scale must be a number between 0.01 and 100.", parent=self.frame)
             return
         edits.set_scale(self.ss, self.sel_prefab, v)
+        self.dirty = True
         self.refresh()
 
     def _remove_selected(self):
         if self.ss is None or self.sel_prefab is None:
+            return
+        if self.sel_slot:
+            _info("Remove part", "That's an empty slot. Select the part itself to remove it.", parent=self.frame)
             return
         found = edits.find_parent(self.ss, self.sel_prefab)
         if not found:
             _info("Remove part", "That's the base item. Use New to start over instead.", parent=self.frame)
             return
         parent, slot_h = found
+        n = len(edits.tree(SpawnString(self.sel_prefab), self.cat)) - 1
+        if n and not _ask("Remove part", "Remove %s and the %d part(s) attached to it?"
+                          % (self.cat.prefab_name(self.sel_prefab.hash), n), parent=self.frame):
+            return
         edits.detach(self.ss, parent, self.sel_prefab)
+        self.dirty = True
         self.sel_prefab, self.sel_slot = parent, (parent, slot_h)
         self.refresh()
 
@@ -516,6 +549,7 @@ class StringBuilderTab:
         for y in range(0, h, 20):
             c.create_line(0, y, w, y, fill="#221c15")
         self._shape_map = {}
+        self._hits = []
         if self.ss is None:
             c.create_text(w / 2, h / 2, text="Double-click an item on the left to start,\nor paste one of your strings.",
                           fill=MUTED, font=("Segoe UI", 10), justify="center")
@@ -535,7 +569,7 @@ class StringBuilderTab:
             c.create_rectangle(x0, y0, x1, y1, outline="#ffd080" if sel else col, width=2.5 if sel else 1.2,
                                fill="#3d311d" if sel else "", tags=("part", tag))
             self._shape_map[tag] = s
-            c.tag_bind(tag, "<Button-1>", lambda e, s=s: self._click_shape(s))
+            self._hits.append(("part", (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)), s))
         for s in shapes:  # labels and slot markers on top
             x0, y0, x1, y1 = layout2d.to_canvas(s.rect, scale, ox, oy)
             if s.prefab is self.sel_prefab or len(shapes) <= 6:
@@ -549,8 +583,23 @@ class StringBuilderTab:
                 tag = "slot%d_%d" % (id(s.prefab), h_)
                 c.create_oval(px - 4, py - 4, px + 4, py + 4, outline="#ffd080" if sel else "#7fa7c9",
                               dash=() if sel else (2, 2), width=2 if sel else 1, tags=("slotpoint", tag))
-                c.tag_bind(tag, "<Button-1>", lambda e, p=s.prefab, hh=h_: self.select_slot(p, hh))
+                self._hits.append(("slot", (px, py), (s.prefab, h_)))
         c.create_text(6, h - 6, text=view.title() + " view", anchor="sw", fill=MUTED, font=("Segoe UI", 8))
+
+    def click_at(self, x, y):
+        """Empty-slot markers win within 8 px; otherwise the most deeply attached (then smallest) part under the pointer."""
+        for kind, where, what in self._hits:
+            if kind == "slot" and (where[0] - x) ** 2 + (where[1] - y) ** 2 <= 64:
+                self.select_slot(*what)
+                return
+        best = None
+        for kind, where, what in self._hits:
+            if kind == "part" and where[0] - 2 <= x <= where[2] + 2 and where[1] - 2 <= y <= where[3] + 2:
+                key = (-what.depth, (where[2] - where[0]) * (where[3] - where[1]))  # attached parts sit on top
+                if best is None or key < best[0]:
+                    best = (key, what)
+        if best:
+            self._click_shape(best[1])
 
     def _click_shape(self, s):
         self.sel_prefab, self.sel_slot = s.prefab, None
@@ -629,9 +678,17 @@ class LibraryDialog:
             _info("Nothing to save", "Build or load a string first.", parent=self.top)
             return
         name = simpledialog.askstring("Save string", "Name for this string:", parent=self.top)
-        if name and name.strip():
-            self.tab.save_user_string(name.strip())
-            self.fill()
+        if not name or not name.strip():
+            return
+        name = name.strip()
+        if any(e["name"] == name for e in library.load_user(user_library_path())) and not _ask(
+                "Replace", "You already have a string called '%s'. Replace it?" % name, parent=self.top):
+            return
+        if not self.tab.save_user_string(name):
+            _info("Couldn't save", "Your saved-strings file couldn't be read or written, so nothing was changed. "
+                  "A copy of it was kept next to it as .bak.\n\n%s" % user_library_path(), parent=self.top)
+            return
+        self.fill()
 
     def delete(self):
         it = self._selected()
@@ -641,8 +698,10 @@ class LibraryDialog:
         if not mine:
             _info("Built-in string", "Built-in strings can't be deleted. Only your saved strings can.", parent=self.top)
             return
-        if messagebox.askyesno("Delete", "Delete '%s'?" % e["name"], parent=self.top):
-            library.delete_user(user_library_path(), e["name"])
+        if _ask("Delete", "Delete '%s'?" % e["name"], parent=self.top):
+            if not library.delete_user(user_library_path(), e["name"]):
+                _info("Couldn't delete", "Your saved-strings file couldn't be read or written, so nothing was changed.",
+                      parent=self.top)
             self.fill()
 
 

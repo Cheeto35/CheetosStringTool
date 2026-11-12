@@ -26,7 +26,7 @@ You don't have to edit any code. Pick a base item, pick a slot, attach something
 | **Parts** (middle) | Everything in your string, with each slot and what's in it. Empty slots show as ○. Select a part to change its material or scale, or to remove it. |
 | **2D view** (right) | A drawing of the item at real size. Click a part to select it, or click an empty slot marker (dashed circle) to fill it. Auto picks the clearest view; Side, Front, Top and Back are there too. Scroll to zoom. |
 | **Spawn preview** | Spawns the string in front of the target player. |
-| **Clear preview** | Removes everything Spawn preview put out, including anything attached or inside it. |
+| **Clear preview** | Removes everything Spawn preview put out, including anything still attached to it or inside it. Pieces someone has already pulled off or taken out are separate items by then, so Clear leaves those. |
 | **Copy string** | Copies the string so you can share it or spawn it yourself with `spawn string <player> <string>`. |
 | **Paste string** | Loads a string from your clipboard, so you can open and edit strings you already have. |
 | **My strings** | The built-in collection plus your own saved strings. Search them, load one, or save what you're working on. |

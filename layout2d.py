@@ -105,7 +105,8 @@ def layout(root: Prefab, cat, view: str = "side") -> List[Shape]:
             slot = _pose(cat.embed(p.hash, ch.parent_hash))
             child_info = cat.prefabs.get(ch.prefab.hash) or {}
             plug = _pose(child_info.get("plug")).inverse()
-            local = slot.then(_T(plug.rot, plug.pos, ch.prefab.scale * plug.scale))
+            k = ch.prefab.scale
+            local = slot.then(_T(plug.rot, tuple(c * k for c in plug.pos), k * plug.scale))
             walk(ch.prefab, world.then(local), depth + 1)
 
     walk(root, _T(scale=root.scale), 0)
