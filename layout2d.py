@@ -6,7 +6,10 @@ snaps them to their slot, so a child's root goes where the slot is, offset by th
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from stringcodec import Prefab
+try:
+    from .stringcodec import Prefab
+except ImportError:  # loaded outside the package (tools)
+    from stringcodec import Prefab
 
 VIEWS = {"side": (0, 1, 1), "front": (2, 1, 1), "top": (0, 2, 1), "back": (0, 1, -1)}
 SMALL = 0.1  # box size for parts with no known size

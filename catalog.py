@@ -59,6 +59,10 @@ class Catalog:
             return "Unknown material #%d" % h
         return "%s (%s)" % (METAL_NAMES[n], n) if n in METAL_NAMES else n
 
+    def material_short(self, h: int) -> str:
+        n = self._materials.get(h)
+        return METAL_NAMES.get(n, n) if n is not None else "Unknown material #%d" % h
+
     def materials(self) -> List[Tuple[int, str]]:
         return sorted(((h, self.material_name(h)) for h in self._materials), key=lambda x: x[1].lower())
 
@@ -87,10 +91,18 @@ class Catalog:
         item = self.prefabs.get(item_h)
         return bool(item and set(item.get("plug_types", [])) & set(e.get("slot_types", [])))
 
-    def search(self, query: str, fits: Optional[Tuple[int, int]] = None, limit: int = 200) -> List[Tuple[int, str]]:
+    @staticmethod
+    def hidden(p: dict) -> bool:
+        """Invisible world objects (logic, spawners, growth stages, teleporter nodes): no size, or "(...)" names."""
+        return not p.get("bounds") or p["name"].startswith("(")
+
+    def search(self, query: str, fits: Optional[Tuple[int, int]] = None, limit: int = 200,
+               include_hidden: bool = False) -> List[Tuple[int, str]]:
         words = [w for w in (query or "").lower().split() if w]
         out = []
         for h, p in self._sorted:
+            if not include_hidden and self.hidden(p):
+                continue
             name = p["name"].lower()
             if all(w in name or w == str(h) for w in words) and (fits is None or self.fits(fits[0], fits[1], h)):
                 out.append((h, p["name"]))

@@ -2,7 +2,10 @@
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from stringcodec import Child, Component, Prefab, SpawnString, _u
+try:
+    from .stringcodec import Child, Component, Prefab, SpawnString, _u
+except ImportError:  # loaded outside the package (tools)
+    from stringcodec import Child, Component, Prefab, SpawnString, _u
 
 MATERIAL = "PhysicalMaterialPart"
 MATERIAL_HASH_FALLBACK = 272188517  # the component hash used by every archived string
