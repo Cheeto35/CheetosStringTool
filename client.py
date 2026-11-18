@@ -5,6 +5,7 @@ Made By Cheeto. Registers itself after the Macros tab; delete this addon folder 
 import json
 import os
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import messagebox, simpledialog, ttk
 
 from tavern_shared.theme import AMBER, AMBERDIM, BG, BORDER, GREEN, MONO, MUTED, PARCH, RED, SURF, SURF2, _btn, _mk_scrollbar
@@ -102,6 +103,8 @@ class StringBuilderTab:
         self.dirty = False  # unsaved edits
         self._hits = []  # parts and slot markers from the last draw, for click picking
         self.zoom = 1.0
+        self.pan_x = self.pan_y = 0  # right-drag offset of the 2D view, in pixels
+        self._pan_from = None
         self._row_map = {}
         self._shape_map = {}
         if not hasattr(window, "_string_builder_preview"):
@@ -193,7 +196,9 @@ class StringBuilderTab:
         self.tree = ttk.Treeview(box, show="tree", selectmode="browse", style="SB.Treeview")
         sb = _mk_scrollbar(box, self.tree.yview)
         sb.pack(side="right", fill="y")
-        self.tree.config(yscrollcommand=sb.set)
+        xsb = _mk_scrollbar(box, self.tree.xview, orient="horizontal")
+        xsb.pack(side="bottom", fill="x")
+        self.tree.config(yscrollcommand=sb.set, xscrollcommand=xsb.set)
         self.tree.pack(side="left", fill="both", expand=True)
         self.tree.tag_configure("slot", foreground="#7fa7c9")
         self.tree.tag_configure("unknown", foreground=RED)
@@ -215,7 +220,7 @@ class StringBuilderTab:
         self.mat_box.bind("<<ComboboxSelected>>", lambda e: self._apply_material())
         row2 = tk.Frame(props, bg=SURF)
         row2.pack(fill="x", pady=2)
-        _label(row2, "Scale", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
+        _label(row2, "Item scale", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
         self.scale_var = tk.StringVar()
         se = tk.Entry(row2, textvariable=self.scale_var, width=8, bg=SURF2, fg=PARCH, insertbackground=AMBER,
                       relief="flat", font=("Segoe UI", 9), bd=3)
@@ -231,12 +236,14 @@ class StringBuilderTab:
             tk.Radiobutton(p.head, text=name, value=name, variable=self.view_var, command=self._on_view, indicatoron=False,
                            bg=SURF2, fg=PARCH, selectcolor=AMBERDIM, activebackground=SURF2, relief="flat",
                            font=("Segoe UI", 8), padx=5, bd=0).pack(side="left", padx=1)
-        _label(p.head, "scroll to zoom", fg=MUTED, bg=SURF, font=("Segoe UI", 8)).pack(side="right")
+        _label(p.head, "scroll: zoom · right-drag: move", fg=MUTED, bg=SURF, font=("Segoe UI", 8)).pack(side="right")
         self.canvas = tk.Canvas(p, bg="#16120e", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.canvas.bind("<Configure>", lambda e: self.draw())
         self.canvas.bind("<Button-1>", lambda e: self.click_at(e.x, e.y))
         self.canvas.bind("<MouseWheel>", self._on_wheel)
+        self.canvas.bind("<ButtonPress-3>", self._pan_start)
+        self.canvas.bind("<B3-Motion>", self._pan_move)
         self.canvas.bind("<Button-4>", lambda e: self._zoom(1.15))
         self.canvas.bind("<Button-5>", lambda e: self._zoom(1 / 1.15))
 
@@ -262,6 +269,7 @@ class StringBuilderTab:
         self.ss, self.fresh, self.dirty = ss, False, False
         self.sel_prefab, self.sel_slot = ss.root, None
         self.view, self.zoom = None, 1.0
+        self.pan_x = self.pan_y = 0
         self.view_var.set("Auto")
         self.refresh()
         return True
@@ -279,6 +287,7 @@ class StringBuilderTab:
         if first:
             self.sel_slot = (self.ss.root, first[0][0])
         self.view, self.zoom = None, 1.0
+        self.pan_x = self.pan_y = 0
         self.refresh()
 
     def select_slot(self, prefab, slot_h):
@@ -436,11 +445,24 @@ class StringBuilderTab:
                 self._row_map[sid] = ("slot", r.prefab, h)
                 if self.sel_slot and self.sel_slot[0] is r.prefab and self.sel_slot[1] == h:
                     select = sid
+        self._fit_tree_width()
         if select:
             self._suppress = True
             self.tree.selection_set(select)
             self.tree.see(select)
             self._suppress = False
+
+    def _fit_tree_width(self):
+        """Makes the column as wide as the longest row (text plus indent) so long builds scroll sideways."""
+        font = tkfont.nametofont("TkDefaultFont")
+        widest = 0
+        def walk(iid, depth):
+            nonlocal widest
+            for c in self.tree.get_children(iid):
+                widest = max(widest, font.measure(self.tree.item(c, "text")) + 20 * (depth + 1))
+                walk(c, depth + 1)
+        walk("", 0)
+        self.tree.column("#0", minwidth=widest + 8, width=widest + 8, stretch=True)
 
     def _on_tree_select(self):
         if getattr(self, "_suppress", False):
@@ -468,7 +490,7 @@ class StringBuilderTab:
         self.sel_title.config(text=title)
         m = edits.get_material(p, self.cat)
         self.mat_var.set(self.cat.material_name(m) if m is not None else "(none)")
-        self.scale_var.set(("%g" % p.scale))
+        self.scale_var.set(("%g" % self.ss.root.scale))  # only the base item's scale counts; it sizes the whole build
 
     def _apply_material(self):
         if self.ss is None or self.sel_prefab is None:
@@ -491,7 +513,7 @@ class StringBuilderTab:
         except ValueError:
             _info("Scale", "Scale must be a number between 0.01 and 100.", parent=self.frame)
             return
-        edits.set_scale(self.ss, self.sel_prefab, v)
+        edits.set_scale(self.ss, self.ss.root, v)
         self.dirty = True
         self.refresh()
 
@@ -520,6 +542,18 @@ class StringBuilderTab:
         v = self.view_var.get()
         self.view = None if v == "Auto" else v.lower()
         self.zoom = 1.0
+        self.pan_x = self.pan_y = 0
+        self.draw()
+
+    def _pan_start(self, e):
+        self._pan_from = (e.x, e.y)
+
+    def _pan_move(self, e):
+        if self._pan_from is None:
+            return
+        self.pan_x += e.x - self._pan_from[0]
+        self.pan_y += e.y - self._pan_from[1]
+        self._pan_from = (e.x, e.y)
         self.draw()
 
     def _on_wheel(self, e):
@@ -562,6 +596,8 @@ class StringBuilderTab:
         scale *= self.zoom
         ox = w / 2 + (ox - w / 2) * self.zoom
         oy = h / 2 + (oy - h / 2) * self.zoom
+        ox += self.pan_x
+        oy += self.pan_y
         colours = [AMBER, "#7fa7c9", "#c9a0dc", GREEN, "#d98a6a"]
         for i, s in enumerate(shapes):
             x0, y0, x1, y1 = layout2d.to_canvas(s.rect, scale, ox, oy)
