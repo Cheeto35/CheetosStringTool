@@ -37,6 +37,7 @@ The addon comes with over 200 of Cheeto's strings to load, spawn and pull apart:
 
 ## Notes
 
+- **Spawn strings with `spawn string <player> <string>`, not `spawn string-raw`.** A raw spawn puts the item at the position saved inside the string, and for these strings that's the world origin, where nothing is loaded. The game then stores the item in the origin chunk's save file, and enough of them can crash the server when that chunk loads.
 - Strings you load are kept exactly as they were until you change them. Changed and new strings are saved in the current game's format.
 - The item data comes from game build main-1.7.2.1.42203. If a server has items the addon doesn't know, it shows a warning, and those items appear as "Unknown item #number" instead of breaking anything.
 - No game models are included; the 2D view draws each part as an outline at its real size.

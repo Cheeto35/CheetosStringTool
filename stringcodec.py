@@ -59,13 +59,30 @@ class SpawnString:
 _STRING = re.compile(r"\d+,\d+,(?:\d+,)*\d+,?(?:\|(?:\d+,)*\d+,?)?")
 
 
+def _plausible(candidate: str) -> bool:
+    """A spawn string repeats its prefab hash as the first data word and has all the words its size needs."""
+    nums = candidate.split("|")[0].rstrip(",").split(",")
+    if len(nums) < 3 or nums[0] != nums[2]:
+        return False
+    return len(nums) - 2 >= (int(nums[1]) + 3) // 4
+
+
 def clean(text: str) -> str:
-    """The first spawn string in pasted text, normalised to end each part with a comma."""
-    m = _STRING.search(text or "")
-    if not m:
+    """The first spawn string in pasted text, normalised to end each part with a comma.
+
+    Spaces and line breaks after commas are dropped first (wrapped or ", "-separated pastes), and number runs
+    that aren't a spawn string (a date, a version) are skipped."""
+    text = re.sub(r"([,|])\s+", r"\1", text or "")
+    first = None
+    for m in _STRING.finditer(text):
+        parts = m.group(0).split("|")
+        candidate = "|".join(p if p.endswith(",") else p + "," for p in parts)
+        if _plausible(candidate):
+            return candidate
+        first = first or candidate
+    if first is None:
         raise StringFormatError("No spawn string found")
-    parts = m.group(0).split("|")
-    return "|".join(p if p.endswith(",") else p + "," for p in parts)
+    return first
 
 
 # ---- bits -------------------------------------------------------------------------------------

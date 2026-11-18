@@ -254,7 +254,7 @@ class StringBuilderTab:
     def load_string(self, text):
         try:
             ss = decode(text)
-        except (StringFormatError, ValueError) as e:
+        except Exception as e:  # malformed, truncated, or nested too deep to read
             _info("Not a spawn string", "That doesn't look like a spawn string.\n\n%s" % e, parent=self.frame)
             return False
         if not self._confirm_discard():
@@ -343,7 +343,7 @@ class StringBuilderTab:
             n = self.preview.record(rd)
             self._log("[String Builder] Spawned %d preview item(s) for %s.\n" % (n, target) if n else
                       "[String Builder] The server didn't spawn it. Check the console output above.\n", "ok" if n else "err")
-        self.window._send_and_capture(cmd, done)
+        self.window._send_and_capture(cmd, done, max_wait=60.0)  # big strings can take a while to spawn
 
     def clear_preview(self):
         if not self.preview.ids:
@@ -380,6 +380,8 @@ class StringBuilderTab:
         else:
             self.fits_check.config(text="Only items that fit the slot (select a slot first)", state="disabled")
         found = self.cat.search(self.search_var.get(), fits=fits, limit=400)
+        self.items_hint.config(text="Showing the first 400 matches. Type more to narrow it down." if len(found) >= 400
+                               else "Double-click to start a new string, or to fill the selected slot.")
         self._result_hashes = [h for h, _ in found]
         self.results.delete(0, "end")
         for _h, name in found:
