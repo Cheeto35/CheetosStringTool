@@ -11,7 +11,7 @@ from tkinter import messagebox, simpledialog, ttk
 from tavern_shared.theme import AMBER, AMBERDIM, BG, BORDER, GREEN, MONO, MUTED, PARCH, RED, SURF, SURF2, _btn, _mk_scrollbar
 from tavern_shared.window_chrome import _finish_dark_window, _set_window_icon, _start_hidden
 
-from . import dialogs, edits, layout2d, library, liveinfo, render2d
+from . import attributes, components, dialogs, edits, layout2d, library, liveinfo, render2d
 from .catalog import Catalog
 from .preview import PreviewTracker
 from .visuals import Visuals
@@ -29,6 +29,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ITEMS = os.path.join(HERE, "data", "items.json")
 VISUALS = os.path.join(HERE, "data", "visuals.json")
 LIBRARY = os.path.join(HERE, "data", "library.json")
+COMPONENTS = os.path.join(HERE, "data", "components.json")
+REFS = os.path.join(HERE, "data", "refs.json")
 CREDIT = "Made By Cheeto"
 
 
@@ -87,6 +89,33 @@ def get_visuals():
     return _visuals
 
 
+_schema = None
+_refs = None
+
+
+def get_schema():
+    """The game's saved layouts for item components (shipped data); empty if the file is missing."""
+    global _schema
+    if _schema is None:
+        try:
+            _schema = components.Schema.load(COMPONENTS)
+        except (OSError, ValueError):
+            _schema = components.Schema({})
+    return _schema
+
+
+def get_refs():
+    """Names of game assets by kind (liquids, effects, stats, ...) for the attributes window."""
+    global _refs
+    if _refs is None:
+        try:
+            with open(REFS, encoding="utf-8") as f:
+                _refs = json.load(f)
+        except (OSError, ValueError):
+            _refs = {}
+    return _refs
+
+
 def _data_warning(cat):
     if not cat.prefabs:
         return "Item data is missing, so items show as numbers and can't be drawn. Reinstall the addon."
@@ -129,6 +158,8 @@ class StringBuilderTab:
         self.window = window
         self.cat = get_catalog()
         self.vis = get_visuals()
+        self.schema = get_schema()
+        self.refs = get_refs()
         self.ss = None
         self.sel_prefab = None
         self.sel_slot = None  # (prefab, slot hash) that a double-clicked item will fill
@@ -290,6 +321,12 @@ class StringBuilderTab:
         self.dock_btn = _btn(row3, "Select a dock to fill it", self._holds_clicked, font=("Segoe UI", 8),
                              pady=2, padx=8, anchor="w")
         self.dock_btn.pack(side="left", fill="x", expand=True)
+        row5 = tk.Frame(props, bg=SURF)
+        row5.pack(fill="x", pady=2)
+        _label(row5, "Settings", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
+        self.attr_btn = _btn(row5, "Select a part to change its settings", self.open_attributes, font=("Segoe UI", 8),
+                             pady=2, padx=8, anchor="w")
+        self.attr_btn.pack(side="left", fill="x", expand=True)
         row4 = tk.Frame(props, bg=SURF)
         row4.pack(fill="x", pady=(4, 0))
         _btn(row4, "📎 Attach a string to this slot…", self._attach_string_dialog, font=("Segoe UI", 8),
@@ -567,6 +604,7 @@ class StringBuilderTab:
             self.piece_var.set(WHOLE)
             self.pieces_btn.config(state="disabled")
             self._refresh_dock()
+            self._refresh_attrs()
             return
         title = self.cat.prefab_name(p.hash)
         if self.sel_slot:
@@ -580,6 +618,7 @@ class StringBuilderTab:
             self.piece_var.set(options[0] if options else NO_MATERIAL)
         self._show_material()
         self._refresh_dock()
+        self._refresh_attrs()
         self.pieces_btn.config(state="normal" if options else "disabled")
         self.scale_var.set(("%g" % self.ss.root.scale))  # only the base item's scale counts; it sizes the whole build
 
@@ -631,6 +670,33 @@ class StringBuilderTab:
         p, h = self.sel_slot
         e = self.cat.embed(p.hash, h)
         return (p, h) if e and e["kind"] == "dock" else None
+
+    def _attrs(self, p=None):
+        if p is None:
+            if self.sel_slot:
+                return []
+            p = self.sel_prefab
+        if self.ss is None or p is None:
+            return []
+        return attributes.list_attrs(self.ss, p, self.cat, self.schema, fresh=self.fresh)
+
+    def _refresh_attrs(self):
+        attrs = self._attrs()
+        if not attrs:
+            self.attr_btn.config(text="Nothing to change on this part" if self.sel_prefab and not self.sel_slot
+                                 else "Select a part to change its settings", state="disabled")
+            return
+        changed = sum(1 for a in attrs if a.status == "set")
+        text = attributes.summary(attrs) or "⚙ %d setting%s" % (len(attrs), "" if len(attrs) == 1 else "s")
+        self.attr_btn.config(text=text + ("  ·  %d changed" % changed if changed else "") + "   ▾", state="normal")
+
+    def open_attributes(self, prefab=None):
+        """The attributes window for a part with saved settings (potion liquid, fuse, durability, ...)."""
+        from .attr_dialog import AttributeEditor
+        p = prefab or self.sel_prefab
+        if self.ss is None or p is None or not self._attrs(p):
+            return None
+        return AttributeEditor(self, p)
 
     def _gift_box(self):
         """The selected part when it's a gift mail box (names and contents), else None."""

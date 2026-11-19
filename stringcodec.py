@@ -26,6 +26,8 @@ class Component:
     hash: int
     bits: str  # the component body as '0'/'1'
     gift: Optional["Gift"] = None  # set for a readable SentGift; its bits are rebuilt from it when written
+    start: int = 0  # where its body began in the string it was read from
+    layout: Optional[object] = None  # anything with to_bits(start): rebuilds the body wherever it lands
 
 
 @dataclass
@@ -87,7 +89,8 @@ class GiftItem:
 
 
 def _read_text(bits: str, i: int, start: int) -> Tuple[str, int]:
-    """A name: 16-bit length, then byte-aligned characters; whole 32-bit words hold theirs in reverse order."""
+    """A name: 16-bit length, then (if any) padding to the next byte of the stream and the characters; whole 32-bit
+    words hold theirs in reverse order."""
     n = int(bits[i:i + 16], 2)
     i += 16
     if n == 0:
@@ -247,7 +250,7 @@ def _components(r: _Reader) -> List[Component]:
             return out
         size = r.uint()
         start = r.pos
-        c = Component(h, r.take(size))
+        c = Component(h, r.take(size), start=start)
         if h == SENT_GIFT:
             g = Gift.from_bits(c.bits, start)
             if g is not None and g.to_bits(start) == c.bits:  # only when it can be written back exactly
@@ -320,6 +323,8 @@ def _w_components(out: _Out, comps: List[Component]):
     for c in comps:
         if c.gift is not None:
             c.bits = c.gift.to_bits(out.pos + 64)  # after its hash and size
+        elif c.layout is not None:
+            c.bits = c.layout.to_bits(out.pos + 64)
         out.add(_u(c.hash), _u(len(c.bits)), c.bits)
     out.add(_u(0))
 
