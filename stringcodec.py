@@ -4,7 +4,8 @@ A string is ``prefabHash,sizeBytes,word,word,...,`` optionally followed by ``|co
 (the component versioning). The words hold a bit stream: each 32-bit word's bits, most significant
 first. The stream describes one prefab: its hash, position, rotation, scale, components, embedded
 entities and child prefabs attached to slots. Component bodies are kept as raw bits, so anything this
-module doesn't understand is carried through untouched.
+module doesn't understand is carried through untouched. Gift mail boxes (SentGift) are the exception: their names
+are packed to where they sit in the whole stream, so they're read into a Gift and laid out again on writing.
 """
 import re
 import struct
@@ -16,10 +17,15 @@ class StringFormatError(ValueError):
     pass
 
 
+SENT_GIFT = 661497638  # a gift mail box's names and contents
+_SIGN = 0x80000000  # ints are stored with the top bit flipped
+
+
 @dataclass
 class Component:
     hash: int
     bits: str  # the component body as '0'/'1'
+    gift: Optional["Gift"] = None  # set for a readable SentGift; its bits are rebuilt from it when written
 
 
 @dataclass
@@ -54,6 +60,120 @@ class SpawnString:
     versioning: Optional[str] = None  # the text after '|', kept as it came in
     original: Optional[str] = None  # cleaned input; None once edited
     extra_words: List[int] = field(default_factory=list)  # words past sizeBytes; the game ignores them
+
+
+@dataclass
+class GiftItem:
+    """One thing packed in a gift: a whole spawn string of its own, kept as its words."""
+    hash: int
+    size: int  # as the game stores it: the string's byte size less 4
+    words: List[int]
+    versioning: List[int]  # component (hash, version) pairs, flat
+
+    def text(self) -> str:
+        text = ",".join(str(n) for n in [self.hash, self.size + 4] + self.words) + ","
+        if self.versioning:
+            text += "|" + ",".join(str(n) for n in [len(self.versioning) // 2] + self.versioning) + ","
+        return text
+
+    def spawn_string(self) -> "SpawnString":
+        return decode(self.text())
+
+    @classmethod
+    def from_string(cls, ss: "SpawnString", versioning: List[int]) -> "GiftItem":
+        nums = [int(x) for x in encode(ss, force=True).split("|")[0].rstrip(",").split(",")]
+        size = nums[1]
+        return cls(nums[0], size - 4, nums[2:2 + (size + 3) // 4], list(versioning))
+
+
+def _read_text(bits: str, i: int, start: int) -> Tuple[str, int]:
+    """A name: 16-bit length, then byte-aligned characters; whole 32-bit words hold theirs in reverse order."""
+    n = int(bits[i:i + 16], 2)
+    i += 16
+    if n == 0:
+        return "", i
+    while (start + i) % 8:
+        i += 1
+    out, j = [], 0
+    while j < n and (start + i) % 32:
+        out.append(bits[i:i + 8]); i += 8; j += 1
+    while j + 4 <= n:
+        out += [bits[i + k * 8:i + k * 8 + 8] for k in (3, 2, 1, 0)]; i += 32; j += 4
+    while j < n:
+        out.append(bits[i:i + 8]); i += 8; j += 1
+    if i > len(bits):
+        raise StringFormatError("Gift name runs past its data")
+    return "".join(chr(int(b, 2)) for b in out), i
+
+
+def _write_text(out: list, pos: int, text: str) -> int:
+    data = text.encode("latin-1", "replace")
+    out.append(format(len(data), "016b"))
+    pos += 16
+    if not data:
+        return pos
+    while pos % 8:
+        out.append("0"); pos += 1
+    j = 0
+    while j < len(data) and pos % 32:
+        out.append(format(data[j], "08b")); pos += 8; j += 1
+    while j + 4 <= len(data):
+        out += [format(b, "08b") for b in reversed(data[j:j + 4])]; pos += 32; j += 4
+    while j < len(data):
+        out.append(format(data[j], "08b")); pos += 8; j += 1
+    return pos
+
+
+@dataclass
+class Gift:
+    to: str
+    sender: str
+    items: List[GiftItem]
+    tag: str  # what follows the contents (who sent it to whom, by id), kept as it came
+
+    DEFAULT_TAG = "0" + format(_SIGN, "032b") * 2
+
+    @classmethod
+    def from_bits(cls, bits: str, start: int) -> Optional["Gift"]:
+        """The gift in a SentGift body that begins at stream bit `start`, or None if it doesn't read cleanly."""
+        try:
+            to, i = _read_text(bits, 0, start)
+            sender, i = _read_text(bits, i, start)
+            count, i = int(bits[i:i + 32], 2), i + 32
+            items = []
+            for _ in range(count):
+                if bits[i] != "0":
+                    return None  # an empty entry; leave such gifts as they are
+                i += 1
+                n, i = int(bits[i:i + 32], 2), i + 32
+                if 32 * n > len(bits) - i:
+                    return None
+                words = [int(bits[i + 32 * k:i + 32 * k + 32], 2) for k in range(n)]
+                i += 32 * n
+                size, i = int(bits[i:i + 32], 2), i + 32
+                h, i = int(bits[i:i + 32], 2), i + 32
+                n, i = int(bits[i:i + 32], 2), i + 32
+                if 32 * n > len(bits) - i:
+                    return None
+                versioning = [int(bits[i + 32 * k:i + 32 * k + 32], 2) for k in range(n)]
+                i += 32 * n
+                items.append(GiftItem(h, size, words, versioning))
+            if i > len(bits):
+                return None
+            return cls(to, sender, items, bits[i:])
+        except (IndexError, ValueError, StringFormatError):
+            return None
+
+    def to_bits(self, start: int) -> str:
+        out = []
+        pos = _write_text(out, start, self.to)
+        _write_text(out, pos, self.sender)
+        out.append(_u(len(self.items)))
+        for it in self.items:
+            out += ["0", _u(len(it.words))] + [_u(w) for w in it.words]
+            out += [_u(it.size), _u(it.hash), _u(len(it.versioning))] + [_u(v) for v in it.versioning]
+        out.append(self.tag)
+        return "".join(out)
 
 
 _STRING = re.compile(r"\d+,\d+,(?:\d+,)*\d+,?(?:\|(?:\d+,)*\d+,?)?")
@@ -126,7 +246,13 @@ def _components(r: _Reader) -> List[Component]:
         if h == 0:
             return out
         size = r.uint()
-        out.append(Component(h, r.take(size)))
+        start = r.pos
+        c = Component(h, r.take(size))
+        if h == SENT_GIFT:
+            g = Gift.from_bits(c.bits, start)
+            if g is not None and g.to_bits(start) == c.bits:  # only when it can be written back exactly
+                c.gift = g
+        out.append(c)
 
 
 def _embeds(r: _Reader) -> List[Embed]:
@@ -177,37 +303,50 @@ def decode(text: str) -> SpawnString:
 
 # ---- encode -----------------------------------------------------------------------------------
 
-def _w_components(out: list, comps: List[Component]):
+class _Out:
+    """Collects bits and knows where in the stream the next ones land."""
+
+    def __init__(self):
+        self.parts = []
+        self.pos = 0
+
+    def add(self, *bits: str):
+        for b in bits:
+            self.parts.append(b)
+            self.pos += len(b)
+
+
+def _w_components(out: _Out, comps: List[Component]):
     for c in comps:
-        out += [_u(c.hash), _u(len(c.bits)), c.bits]
-    out.append(_u(0))
+        if c.gift is not None:
+            c.bits = c.gift.to_bits(out.pos + 64)  # after its hash and size
+        out.add(_u(c.hash), _u(len(c.bits)), c.bits)
+    out.add(_u(0))
 
 
-def _w_prefab(out: list, p: Prefab):
-    out.append(_u(p.hash))
-    out += [_f(v) for v in p.pos] + [_f(v) for v in p.rot] + [_f(p.scale)]
+def _w_prefab(out: _Out, p: Prefab):
+    out.add(_u(p.hash), *[_f(v) for v in p.pos], *[_f(v) for v in p.rot], _f(p.scale))
     _w_components(out, p.components)
     for e in p.embeds:
-        out += [_u(e.hash)]
+        out.add(_u(e.hash))
         if e.alive:
-            inner = []
-            _w_components(inner, e.components or [])
-            out += [_u(e.size), "1"] + inner
+            out.add(_u(e.size), "1")
+            _w_components(out, e.components or [])
         else:
-            out += [_u(len(e.raw or "")), "0", e.raw or ""]
-    out.append(_u(0))
+            out.add(_u(len(e.raw or "")), "0", e.raw or "")
+    out.add(_u(0))
     for c in p.children:
-        out += ["1", _u(c.parent_hash)]
+        out.add("1", _u(c.parent_hash))
         _w_prefab(out, c.prefab)
-    out.append("0")
+    out.add("0")
 
 
 def encode(ss: SpawnString, versioning: Optional[List[int]] = None, force: bool = False) -> str:
     if ss.original is not None and not force:
         return ss.original
-    parts = []
-    _w_prefab(parts, ss.root)
-    bits = "".join(parts)
+    out = _Out()
+    _w_prefab(out, ss.root)
+    bits = "".join(out.parts)
     size = (len(bits) + 7) // 8
     bits = bits.ljust(((size + 3) // 4) * 32, "0")
     words = [int(bits[i:i + 32], 2) for i in range(0, len(bits), 32)]

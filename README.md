@@ -28,6 +28,7 @@ You don't have to edit any code. Pick a base item, pick a slot, attach something
 | **🎨 Materials…** | Opens the item on its own, drawn large, to change its material or its pieces' materials. Hover to see each piece's name, click pieces (Ctrl-click for more), then click a material in the palette. Double-clicking a crafted item in the drawing or in Parts opens it too. |
 | **Item scale** | Sizes the whole build. The game only uses the base item's scale. |
 | **Holds** | Select a dock (a quiver's arrow dock, a lantern's fuel dock), then click Holds to search for what goes in it and how many, like 999 arrows. |
+| **🎁 Gift boxes** | Select a gift mail box and click Holds (or double-click the box) to write the To and From names on it and pack things inside: search for items with an amount, or put in a whole string from your strings or the clipboard, even another gift box. |
 | **Attach a string to this slot** | Puts a whole string, with everything on it, into the selected slot or dock. Pick one from your strings or paste one from the clipboard. |
 | **⟳ / Items** | When TavernKeeper connects, the addon reads the server's own item list, parts and dock contents, so modded items work too. ⟳ reads them again. |
 | **2D view** (right) | A drawing of the item at real size, each part shaped and coloured like the game's own model and material. Click a part to select it, or click an empty slot marker (dashed circle) to fill it. Auto picks the clearest view; Side, Front, Top and Back are there too. Scroll to zoom, and hold right click to move the drawing. |

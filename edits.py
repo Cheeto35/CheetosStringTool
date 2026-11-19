@@ -1,19 +1,21 @@
-"""Changes to a spawn string (attach, detach, material, scale, piece materials, dock contents, string on string)
-and the labelled parts tree the tab shows."""
+"""Changes to a spawn string (attach, detach, material, scale, piece materials, dock contents, string on string,
+gift box names and contents) and the labelled parts tree the tab shows."""
 import copy
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
 try:
-    from .stringcodec import Child, Component, Embed, Prefab, SpawnString, _u
+    from .stringcodec import SENT_GIFT, Child, Component, Embed, Gift, GiftItem, Prefab, SpawnString, _u
 except ImportError:  # loaded outside the package (tools)
-    from stringcodec import Child, Component, Embed, Prefab, SpawnString, _u
+    from stringcodec import SENT_GIFT, Child, Component, Embed, Gift, GiftItem, Prefab, SpawnString, _u
 
 MATERIAL = "PhysicalMaterialPart"
 MATERIAL_HASH_FALLBACK = 272188517  # the component hash used by every archived string
 DOCK = "PickupDock"
 DOCK_HASH_FALLBACK = 2592242915
 _SIGN = 0x80000000  # the game writes ints with the sign bit flipped (1 -> 2147483649)
+GIFT_NAME_MAX = 60  # characters in a To / From name
+GIFT_ITEMS_MAX = 999
 
 
 @dataclass
@@ -206,3 +208,81 @@ def tree(ss: SpawnString, cat) -> List[Row]:
 
     walk(ss.root, 0, None, None)
     return rows
+
+
+# ---- gift mail boxes ------------------------------------------------------------------------------
+
+def get_gift(p: Prefab) -> Optional[Gift]:
+    """The names and contents of a gift mail box, or None when it has none written (or they can't be read)."""
+    c = next((c for c in p.components if c.hash == SENT_GIFT), None)
+    return c.gift if c is not None else None
+
+
+def clean_gift_name(name: str) -> str:
+    """What the game can show: one byte per character, so anything else becomes '?'."""
+    name = (name or "").replace("\n", " ").replace("\r", " ")[:GIFT_NAME_MAX]
+    return name.encode("latin-1", "replace").decode("latin-1")
+
+
+def _gift(ss: SpawnString, p: Prefab) -> Gift:
+    c = next((c for c in p.components if c.hash == SENT_GIFT), None)
+    if c is None:
+        g = Gift("", "", [], Gift.DEFAULT_TAG)
+        p.components.insert(0, Component(SENT_GIFT, g.to_bits(0), g))  # first, as the game's own gifts have it
+        return g
+    if c.gift is None:
+        raise ValueError("This gift box's contents couldn't be read, so they aren't changed")
+    return c.gift
+
+
+def set_gift(ss: SpawnString, p: Prefab, to: Optional[str] = None, sender: Optional[str] = None, cat=None) -> None:
+    g = _gift(ss, p)
+    if to is not None:
+        g.to = clean_gift_name(to)
+    if sender is not None:
+        g.sender = clean_gift_name(sender)
+    ss.original = None
+
+
+def _versioning_of(inner: SpawnString, cat) -> List[int]:
+    if inner.versioning:
+        nums = [int(x) for x in inner.versioning.rstrip(",").split(",") if x]
+        return nums[1:1 + 2 * nums[0]] if nums else []
+    return list(cat.versioning()) if cat else []
+
+
+def add_gift_item(ss: SpawnString, p: Prefab, inner: SpawnString, count: int, cat) -> int:
+    """Packs `count` copies of a string (a plain item or a whole build) in the box; returns how many went in."""
+    g = _gift(ss, p)
+    count = max(0, min(int(count), GIFT_ITEMS_MAX - len(g.items)))
+    item = GiftItem.from_string(inner, _versioning_of(inner, cat))
+    g.items += [copy.deepcopy(item) for _ in range(count)]
+    ss.original = None
+    return count
+
+
+def _same(a: GiftItem, b: GiftItem) -> bool:
+    return (a.hash, a.size, a.words, a.versioning) == (b.hash, b.size, b.words, b.versioning)
+
+
+def gift_groups(g: Optional[Gift]) -> List[Tuple[int, GiftItem]]:
+    """The contents as (how many, item), with identical items next to each other counted together."""
+    out = []
+    for it in (g.items if g else []):
+        if out and _same(out[-1][1], it):
+            out[-1] = (out[-1][0] + 1, out[-1][1])
+        else:
+            out.append((1, it))
+    return out
+
+
+def remove_gift_group(ss: SpawnString, p: Prefab, index: int, how_many: Optional[int] = None) -> None:
+    g = _gift(ss, p)
+    pos = 0
+    for i, (n, _it) in enumerate(gift_groups(g)):
+        if i == index:
+            take = n if how_many is None else max(0, min(n, how_many))
+            del g.items[pos:pos + take]
+            break
+        pos += n
+    ss.original = None

@@ -154,6 +154,14 @@ class Catalog:
         own = p["embeds"].get(str(p["root_entity"]))
         return own is None or self.MATERIAL in own.get("saved", [self.MATERIAL])
 
+    def is_gift_box(self, prefab_h: int) -> bool:
+        """Whether the item can carry To / From names and packed contents (a gift mail box)."""
+        p = self.prefabs.get(prefab_h)
+        if not p or p.get("root_entity") is None:
+            return False
+        own = p["embeds"].get(str(p["root_entity"])) or {}
+        return "SentGift" in own.get("saved", [])
+
     def item_types(self) -> List[Tuple[int, str]]:
         """Item types a dock can hold (docks store these, not prefab hashes)."""
         return sorted(self._item_types.items(), key=lambda x: x[1].lower())

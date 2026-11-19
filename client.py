@@ -287,7 +287,7 @@ class StringBuilderTab:
         _label(row3, "Holds", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
         self.dock_type_var = tk.StringVar()
         self.dock_qty_var = tk.StringVar(value="1")
-        self.dock_btn = _btn(row3, "Select a dock to fill it", self.open_dock_picker, font=("Segoe UI", 8),
+        self.dock_btn = _btn(row3, "Select a dock to fill it", self._holds_clicked, font=("Segoe UI", 8),
                              pady=2, padx=8, anchor="w")
         self.dock_btn.pack(side="left", fill="x", expand=True)
         row4 = tk.Frame(props, bg=SURF)
@@ -505,6 +505,12 @@ class StringBuilderTab:
             self._row_map[iid] = ("part", r.prefab, None)
             if r.prefab is self.sel_prefab and not self.sel_slot:
                 select = iid
+            if self.cat.is_gift_box(r.prefab.hash):
+                gid = self.tree.insert(iid, "end", text="🎁 " + self._gift_summary(r.prefab), tags=("slot",), open=False)
+                self._row_map[gid] = ("part", r.prefab, None)
+                for n, it in edits.gift_groups(edits.get_gift(r.prefab)):
+                    cid = self.tree.insert(gid, "end", text=dialogs.gift_item_label(self.cat, n, it), tags=("slot",))
+                    self._row_map[cid] = ("part", r.prefab, None)
             for h, label in r.empty_slots:
                 held = edits.get_dock(r.prefab, h, self.cat)
                 text = ("◆ %s: %d × %s" % (label, held[1], self.cat.item_type_name(held[0])) if held
@@ -535,7 +541,8 @@ class StringBuilderTab:
     def _on_tree_double(self):
         sel = self.tree.selection()
         if sel and sel[0] in self._row_map and self._row_map[sel[0]][0] == "part":
-            self.open_piece_editor(self._row_map[sel[0]][1])
+            p = self._row_map[sel[0]][1]
+            self.open_gift_editor(p) if self.cat.is_gift_box(p.hash) else self.open_piece_editor(p)
 
     def _on_tree_select(self):
         if getattr(self, "_suppress", False):
@@ -625,12 +632,37 @@ class StringBuilderTab:
         e = self.cat.embed(p.hash, h)
         return (p, h) if e and e["kind"] == "dock" else None
 
+    def _gift_box(self):
+        """The selected part when it's a gift mail box (names and contents), else None."""
+        p = self.sel_prefab
+        return p if self.ss is not None and p is not None and not self.sel_slot and self.cat.is_gift_box(p.hash) else None
+
+    def _holds_clicked(self):
+        return self.open_gift_editor() if self._gift_box() else self.open_dock_picker()
+
+    def open_gift_editor(self, prefab=None):
+        p = prefab or self._gift_box()
+        if self.ss is None or p is None or not self.cat.is_gift_box(p.hash):
+            return None
+        return dialogs.GiftEditor(self, p)
+
+    def _gift_summary(self, p):
+        g = edits.get_gift(p)
+        if g is None:
+            return "Empty · add names and contents"
+        bits = [("To: " + g.to) if g.to else "", ("From: " + g.sender) if g.sender else "",
+                "%d inside" % len(g.items) if g.items else "empty"]
+        return " · ".join(b for b in bits if b)
+
     def _refresh_dock(self):
         d = self._selected_dock()
         held = edits.get_dock(d[0], d[1], self.cat) if d else None
         self.dock_type_var.set(self.cat.item_type_name(held[0]) if held else "")
         self.dock_qty_var.set(str(held[1]) if held else "1")
-        if not d:
+        box = self._gift_box()
+        if box is not None:
+            self.dock_btn.config(text="🎁 " + self._gift_summary(box) + "   ▾", state="normal")
+        elif not d:
             self.dock_btn.config(text="Select a dock to fill it", state="disabled")
         else:
             self.dock_btn.config(text=("◆ %d × %s   ▾" % (held[1], self.cat.item_type_name(held[0])) if held
@@ -774,6 +806,10 @@ class StringBuilderTab:
         self.sel_prefab, self.sel_slot = child, None
         self.refresh()
         return True
+
+    def pick_string(self, use, title, parent=None):
+        """A saved or clipboard string handed to `use(text)`; the window closes when it returns True."""
+        return LibraryDialog(self, attach=True, use=use, title=title)
 
     def _attach_string_dialog(self):
         if self.ss is None or not self.sel_slot:
@@ -928,6 +964,8 @@ class StringBuilderTab:
             return None
         self.sel_prefab, self.sel_slot = q.prefab, None
         self.refresh()
+        if self.cat.is_gift_box(q.prefab.hash):
+            return self.open_gift_editor(q.prefab)
         return self.open_piece_editor(q.prefab)
 
     def click_at(self, x, y):
@@ -962,12 +1000,13 @@ class StringBuilderTab:
 
 
 class LibraryDialog:
-    def __init__(self, tab, attach=False):
+    def __init__(self, tab, attach=False, use=None, title=None):
         self.tab = tab
         self.attach = attach  # pick a string to put into the selected slot instead of loading it
+        self.use = use or (tab.attach_string_text if attach else tab.load_string)
         top = self.top = tk.Toplevel(tab.frame)
         _start_hidden(top)
-        top.title("Attach a string" if attach else "My strings")
+        top.title(title or ("Attach a string" if attach else "My strings"))
         top.configure(bg=BG)
         top.geometry("560x620")
         _set_window_icon(top)
@@ -992,7 +1031,7 @@ class LibraryDialog:
         btns = tk.Frame(top, bg=BG)
         btns.pack(fill="x", padx=12, pady=10)
         if attach:
-            _btn(btns, "Attach", self.load, "primary", font=("Segoe UI", 9, "bold"), pady=5, padx=12).pack(side="left")
+            _btn(btns, "Use" if use else "Attach", self.load, "primary", font=("Segoe UI", 9, "bold"), pady=5, padx=12).pack(side="left")
             _btn(btns, "📋 From clipboard", self.from_clipboard, font=("Segoe UI", 9), pady=5, padx=10).pack(
                 side="left", padx=6)
         else:
@@ -1029,8 +1068,7 @@ class LibraryDialog:
         it = self._selected()
         if not it:
             return
-        use = self.tab.attach_string_text if self.attach else self.tab.load_string
-        if use(it[0]["string"]):
+        if self.use(it[0]["string"]):
             self.top.destroy()
 
     def from_clipboard(self):
@@ -1041,7 +1079,7 @@ class LibraryDialog:
         if not text.strip():
             _info("Clipboard empty", "Copy a spawn string first.", parent=self.top)
             return
-        if self.tab.attach_string_text(text):
+        if self.use(text):
             self.top.destroy()
 
     def save(self):

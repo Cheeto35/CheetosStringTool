@@ -1,5 +1,6 @@
-"""The String Builder's pop-up windows: the piece editor (an item drawn large, its pieces and a material palette) and
-the dock picker (a searchable list of what a dock can hold, with an amount)."""
+"""The String Builder's pop-up windows: the piece editor (an item drawn large, its pieces and a material palette),
+the dock picker (a searchable list of what a dock can hold, with an amount) and the gift box editor (the names on a
+gift mail box and what's packed inside it)."""
 import tkinter as tk
 from tkinter import simpledialog
 
@@ -384,3 +385,205 @@ class DockPicker:
         self.tab.select_slot(self.prefab, self.dock_h)
         self.tab._empty_dock()
         self.top.destroy()
+
+
+def gift_item_label(cat, count, item) -> str:
+    """'3 × Spoon', with how many parts a whole build has and the names on a box inside a box."""
+    text = "%d × %s" % (count, cat.prefab_name(item.hash))
+    try:
+        inner = item.spawn_string()
+    except Exception:  # unreadable: still listed so it can be removed
+        return text + "  (unreadable)"
+    parts = len(edits.tree(inner, cat)) - 1
+    if parts > 0:
+        text += "  (+%d part%s)" % (parts, "" if parts == 1 else "s")
+    g = edits.get_gift(inner.root)
+    if g is not None and (g.to or g.sender):
+        text += "  · " + " / ".join(x for x in (g.to, g.sender) if x)
+    if g is not None and g.items:
+        text += "  · %d inside" % len(g.items)
+    return text
+
+
+class GiftEditor:
+    """A gift mail box: the To / From names on it and what it holds (items or whole strings)."""
+    QUICK = (1, 5, 10, 50)
+
+    def __init__(self, tab, prefab: Prefab):
+        self.tab, self.prefab = tab, prefab
+        cat = tab.cat
+        top = self.top = _window(tab, "Gift box", "780x560")
+        _label(top, cat.prefab_name(prefab.hash), fg=AMBER, font=("Georgia", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 0))
+        _label(top, "The names show on the box. Whatever is inside comes out when it's opened.", fg=MUTED,
+               font=("Segoe UI", 8)).pack(anchor="w", padx=12)
+        g = edits.get_gift(prefab)
+        names = tk.Frame(top, bg=BG)
+        names.pack(fill="x", padx=12, pady=(8, 4))
+        self.to = tk.StringVar(value=g.to if g else "")
+        self.sender = tk.StringVar(value=g.sender if g else "")
+        for col, (text, var) in enumerate((("To", self.to), ("From", self.sender))):
+            _label(names, text, fg=MUTED).grid(row=0, column=col * 2, sticky="w", padx=(0 if col == 0 else 12, 6))
+            _entry(names, var).grid(row=0, column=col * 2 + 1, sticky="ew")
+            names.columnconfigure(col * 2 + 1, weight=1)
+            var.trace_add("write", lambda *_: self._names_changed())
+
+        body = tk.Frame(top, bg=BG)
+        body.pack(fill="both", expand=True, padx=12, pady=4)
+        body.columnconfigure(0, weight=1, uniform="g")
+        body.columnconfigure(1, weight=1, uniform="g")
+        body.rowconfigure(1, weight=1)
+        # inside the box
+        _label(body, "🎁 Inside the box", fg=AMBER, font=("Georgia", 10, "bold")).grid(row=0, column=0, sticky="w")
+        box = tk.Frame(body, bg=SURF, highlightbackground=BORDER, highlightthickness=1)
+        box.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
+        self.inside = self._listbox(box)
+        self.inside.bind("<Delete>", lambda ev: self.remove())
+        self.inside_count = _label(body, "", fg=MUTED, font=("Segoe UI", 8))
+        self.inside_count.grid(row=2, column=0, sticky="w")
+        ib = tk.Frame(body, bg=BG)
+        ib.grid(row=3, column=0, sticky="w", pady=(2, 0))
+        _btn(ib, "🗑 Take out", self.remove, "danger", font=("Segoe UI", 8), pady=2, padx=8).pack(side="left")
+        _btn(ib, "− 1", lambda: self.remove(1), font=("Segoe UI", 8), pady=2, padx=8).pack(side="left", padx=4)
+        # adding
+        _label(body, "Add an item", fg=AMBER, font=("Georgia", 10, "bold")).grid(row=0, column=1, sticky="w")
+        right = tk.Frame(body, bg=BG)
+        right.grid(row=1, column=1, sticky="nsew")
+        self.q = tk.StringVar()
+        e = _entry(right, self.q)
+        e.pack(fill="x", pady=(0, 4))
+        self.q.trace_add("write", lambda *_: self.fill())
+        rbox = tk.Frame(right, bg=SURF, highlightbackground=BORDER, highlightthickness=1)
+        rbox.pack(fill="both", expand=True)
+        self.results = self._listbox(rbox)
+        self.results.bind("<Double-Button-1>", lambda ev: self.add())
+        self.results.bind("<Return>", lambda ev: self.add())
+        e.bind("<Down>", lambda ev: (self.results.focus_set(), self.results.selection_set(0)))
+        e.bind("<Return>", lambda ev: self.add())
+        amt = tk.Frame(body, bg=BG)
+        amt.grid(row=2, column=1, sticky="w", pady=(4, 0))
+        _label(amt, "Amount", fg=MUTED).pack(side="left")
+        self.qty = tk.StringVar(value="1")
+        _entry(amt, self.qty, width=6).pack(side="left", padx=6)
+        for n in self.QUICK:
+            _btn(amt, str(n), lambda n=n: self.qty.set(str(n)), font=("Segoe UI", 8), pady=1, padx=6).pack(side="left", padx=1)
+        ab = tk.Frame(body, bg=BG)
+        ab.grid(row=3, column=1, sticky="w", pady=(2, 0))
+        _btn(ab, "＋ Put in box", self.add, "primary", font=("Segoe UI", 9, "bold"), pady=3, padx=10).pack(side="left")
+        _btn(ab, "📂 A saved string…", self.add_from_library, font=("Segoe UI", 8), pady=3, padx=8).pack(side="left", padx=4)
+        _btn(ab, "📋 Paste string", self.add_from_clipboard, font=("Segoe UI", 8), pady=3, padx=8).pack(side="left")
+        btns = tk.Frame(top, bg=BG)
+        btns.pack(fill="x", padx=12, pady=(6, 10))
+        _btn(btns, "Done", self.close, "primary", font=("Segoe UI", 9, "bold"), pady=4, padx=14).pack(side="right")
+        top.protocol("WM_DELETE_WINDOW", self.close)
+        self.shown = []
+        self.groups = []
+        self.fill()
+        self.refill()
+        e.focus_set()
+        _finish_dark_window(top)
+
+    def _listbox(self, parent):
+        lb = tk.Listbox(parent, bg=SURF, fg=PARCH, selectbackground=AMBERDIM, selectforeground="#ffd080",
+                        relief="flat", highlightthickness=0, font=("Segoe UI", 10), activestyle="none",
+                        exportselection=False)
+        sb = _mk_scrollbar(parent, lb.yview)
+        sb.pack(side="right", fill="y")
+        lb.config(yscrollcommand=sb.set)
+        lb.pack(side="left", fill="both", expand=True)
+        return lb
+
+    def _names_changed(self):
+        try:
+            edits.set_gift(self.tab.ss, self.prefab, to=self.to.get(), sender=self.sender.get(), cat=self.tab.cat)
+        except ValueError as ex:
+            self.inside_count.config(text=str(ex))
+            return
+        self.tab.dirty = True
+
+    def fill(self):
+        self.shown = self.tab.cat.search(self.q.get(), limit=300)
+        self.results.delete(0, "end")
+        for _h, n in self.shown:
+            self.results.insert("end", n)
+        if self.shown:
+            self.results.selection_set(0)
+
+    def refill(self):
+        g = edits.get_gift(self.prefab)
+        self.groups = edits.gift_groups(g)
+        self.inside.delete(0, "end")
+        for n, it in self.groups:
+            self.inside.insert("end", gift_item_label(self.tab.cat, n, it))
+        total = len(g.items) if g else 0
+        self.inside_count.config(text="Empty" if not total else "%d thing%s inside" % (total, "" if total == 1 else "s"))
+
+    def _amount(self):
+        try:
+            q = int(self.qty.get())
+            if not 1 <= q <= edits.GIFT_ITEMS_MAX:
+                raise ValueError
+            return q
+        except ValueError:
+            self.inside_count.config(text="The amount must be a whole number from 1 to %d." % edits.GIFT_ITEMS_MAX)
+            return None
+
+    def _put(self, inner, count):
+        try:
+            got = edits.add_gift_item(self.tab.ss, self.prefab, inner, count, self.tab.cat)
+        except ValueError as ex:
+            self.inside_count.config(text=str(ex))
+            return False
+        self.tab.dirty = True
+        self.refill()
+        if got < count:
+            self.inside_count.config(text="The box is full (%d things at most)." % edits.GIFT_ITEMS_MAX)
+        if self.groups:
+            self.inside.selection_set("end")
+        self.inside.see("end")
+        return True
+
+    def add(self):
+        sel = self.results.curselection()
+        q = self._amount()
+        if sel and q:
+            self._put(edits.new_string(self.shown[sel[0]][0]), q)
+
+    def add_string_text(self, text):
+        from .stringcodec import decode
+        try:
+            inner = decode(text)
+        except Exception as ex:
+            self.inside_count.config(text="That isn't a spawn string (%s)." % ex)
+            return False
+        q = self._amount()
+        return bool(q) and self._put(inner, q)
+
+    def add_from_library(self):
+        return self.tab.pick_string(self.add_string_text, "Put a string in the box", parent=self.top)
+
+    def add_from_clipboard(self):
+        try:
+            text = self.top.clipboard_get()
+        except tk.TclError:
+            text = ""
+        if not text.strip():
+            self.inside_count.config(text="Copy a spawn string first.")
+            return False
+        return self.add_string_text(text)
+
+    def remove(self, how_many=None):
+        sel = self.inside.curselection()
+        if not sel:
+            return
+        i = sel[0]
+        edits.remove_gift_group(self.tab.ss, self.prefab, i, how_many)
+        self.tab.dirty = True
+        self.refill()
+        if self.groups:
+            i = min(i, len(self.groups) - 1)
+            self.inside.selection_set(i)
+            self.inside.see(i)
+
+    def close(self):
+        self.top.destroy()
+        self.tab.refresh()
