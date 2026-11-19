@@ -25,10 +25,12 @@ You don't have to edit any code. Pick a base item, pick a slot, attach something
 | **Items** (left) | Type to search. Double-click an item to start a new string with it, or to put it in the selected slot. Tick "Only items that fit" to see what normally goes in that slot. You can attach anything anywhere; that's what strings are for. |
 | **Parts** (middle) | Everything in your string, with each slot and what's in it. Empty slots show as ○, and docks holding something show as ◆. Select a part to change its material or remove it. Scroll sideways to see long builds. |
 | **Piece** | Crafted items like lanterns, pouches and quivers are made of pieces (bars, flaps, straps). Pick one piece, or All pieces, and choose a material to give just that piece its own look. |
+| **🎨 Pieces…** | Opens the item on its own, drawn large. Hover to see each piece's name, click pieces (Ctrl-click for more), then click a material in the palette. Double-clicking a crafted item in the drawing or in Parts opens it too. |
 | **Item scale** | Sizes the whole build. The game only uses the base item's scale. |
-| **Holds** | Select a dock (a quiver's arrow dock, a lantern's fuel dock) to fill it with an amount of one item, like 999 arrows. |
+| **Holds** | Select a dock (a quiver's arrow dock, a lantern's fuel dock), then click Holds to search for what goes in it and how many, like 999 arrows. |
 | **Attach a string to this slot** | Puts a whole string, with everything on it, into the selected slot or dock. Pick one from your strings or paste one from the clipboard. |
-| **2D view** (right) | A drawing of the item at real size. Click a part to select it, or click an empty slot marker (dashed circle) to fill it. Auto picks the clearest view; Side, Front, Top and Back are there too. Scroll to zoom, and hold right click to move the drawing. |
+| **⟳ / Items** | When TavernKeeper connects, the addon reads the server's own item list, parts and dock contents, so modded items work too. ⟳ reads them again. |
+| **2D view** (right) | A drawing of the item at real size, each part shaped and coloured like the game's own model and material. Click a part to select it, or click an empty slot marker (dashed circle) to fill it. Auto picks the clearest view; Side, Front, Top and Back are there too. Scroll to zoom, and hold right click to move the drawing. |
 | **Spawn preview** | Spawns the string in front of the target player. |
 | **Clear preview** | Removes everything Spawn preview put out, including anything still attached to it or inside it. Pieces someone has already pulled off or taken out are separate items by then, so Clear leaves those. |
 | **Copy string** | Copies the string so you can share it or spawn it yourself with `spawn string <player> <string>`. |
@@ -44,7 +46,8 @@ The addon comes with almost 200 of Cheeto's strings to load, spawn and pull apar
 - **Spawn strings with `spawn string <player> <string>`, not `spawn string-raw`.** A raw spawn puts the item at the position saved inside the string, and for these strings that's the world origin, where nothing is loaded. The game then stores the item in the origin chunk's save file, and enough of them can crash the server when that chunk loads.
 - Strings you load are kept exactly as they were until you change them. Changed and new strings are saved in the current game's format.
 - The item data comes from game build main-1.7.2.1.42203. If a server has items the addon doesn't know, it shows a warning, and those items appear as "Unknown item #number" instead of breaking anything.
-- The list of items a dock can hold comes from an older community list, so the newest items may be missing from it.
+- Until a server is connected, the lists come from the addon's own data (game build main-1.7.2.1.42203).
+- The game has no command that lists material numbers. If a string uses a material the addon doesn't know (from a mod), the piece editor shows it as "Unknown #number"; click it to give it a name, which is kept on your PC.
 - No game models are included; the 2D view draws each part as an outline at its real size.
 
 ## Licence

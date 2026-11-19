@@ -22,6 +22,7 @@ class Shape:
     rect: Tuple[float, float, float, float]  # x0, y0, x1, y1 in world units (y up)
     slot_points: List[Tuple[int, float, float, bool]] = field(default_factory=list)
     depth: int = 0
+    world: Optional["_T"] = None  # where the part sits: its root space to the drawing's space
 
 
 # ---- tiny transform maths: (rotation quaternion x,y,z,w; translation; uniform scale) -------------
@@ -100,7 +101,7 @@ def layout(root: Prefab, cat, view: str = "side") -> List[Shape]:
             e = cat.embed(p.hash, h)
             x, y = project(world.apply(tuple(e.get("pos") or (0, 0, 0))))
             slots.append((h, x, y, h in filled))
-        shapes.append(Shape(p, cat.prefab_name(p.hash), (min(xs), min(ys), max(xs), max(ys)), slots, depth))
+        shapes.append(Shape(p, cat.prefab_name(p.hash), (min(xs), min(ys), max(xs), max(ys)), slots, depth, world))
         for ch in p.children:
             slot = _pose(cat.embed(p.hash, ch.parent_hash))
             child_info = cat.prefabs.get(ch.prefab.hash) or {}

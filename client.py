@@ -11,9 +11,15 @@ from tkinter import messagebox, simpledialog, ttk
 from tavern_shared.theme import AMBER, AMBERDIM, BG, BORDER, GREEN, MONO, MUTED, PARCH, RED, SURF, SURF2, _btn, _mk_scrollbar
 from tavern_shared.window_chrome import _finish_dark_window, _set_window_icon, _start_hidden
 
-from . import edits, layout2d, library
+from . import dialogs, edits, layout2d, library, liveinfo, render2d
 from .catalog import Catalog
 from .preview import PreviewTracker
+from .visuals import Visuals
+
+try:
+    from PIL import ImageTk
+except ImportError:  # no Pillow: the 2D view falls back to outlines
+    ImageTk = None
 from .stringcodec import SpawnString, StringFormatError, decode, encode
 
 WHOLE, ALL = "Whole part", "All pieces"  # Piece choices besides the named pieces
@@ -21,6 +27,7 @@ NO_MATERIAL = "(this item has no material)"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ITEMS = os.path.join(HERE, "data", "items.json")
+VISUALS = os.path.join(HERE, "data", "visuals.json")
 LIBRARY = os.path.join(HERE, "data", "library.json")
 CREDIT = "Made By Cheeto"
 
@@ -37,6 +44,10 @@ def user_library_path():
     return os.path.join(_data_dir(), "string_builder_library.json")
 
 
+def named_materials_path():
+    return os.path.join(_data_dir(), "string_builder_materials.json")
+
+
 def _info(title, text, parent=None):
     messagebox.showinfo(title, text, parent=parent)
 
@@ -48,14 +59,32 @@ def _ask(title, text, parent=None):
 _catalog = None
 
 
+def fresh_catalog():
+    """The shipped item data plus the materials this player has named."""
+    try:
+        cat = Catalog.load(ITEMS)
+    except Exception:
+        cat = Catalog.empty()
+    for h, n in liveinfo.load_named_materials(named_materials_path()).items():
+        cat.learn_material(n, h)
+    return cat
+
+
 def get_catalog():
     global _catalog
     if _catalog is None:
-        try:
-            _catalog = Catalog.load(ITEMS)
-        except Exception:
-            _catalog = Catalog.empty()
+        _catalog = fresh_catalog()
     return _catalog
+
+
+_visuals = None
+
+
+def get_visuals():
+    global _visuals
+    if _visuals is None:
+        _visuals = Visuals.load(VISUALS)
+    return _visuals
 
 
 def _data_warning(cat):
@@ -99,6 +128,7 @@ class StringBuilderTab:
         self.frame = parent
         self.window = window
         self.cat = get_catalog()
+        self.vis = get_visuals()
         self.ss = None
         self.sel_prefab = None
         self.sel_slot = None  # (prefab, slot hash) that a double-clicked item will fill
@@ -111,6 +141,9 @@ class StringBuilderTab:
         self._pan_from = None
         self._row_map = {}
         self._shape_map = {}
+        self._polys = []  # canvas polygons from the last draw, nearest last, for click picking
+        self._photo = None
+        self._synced_host = None
         if not hasattr(window, "_string_builder_preview"):
             window._string_builder_preview = PreviewTracker()  # survives tab rebuilds
         self.preview = window._string_builder_preview
@@ -118,6 +151,8 @@ class StringBuilderTab:
         self._build()
         self.refresh_search()
         self.refresh()
+        self._sync_job = self.frame.after(1500, self._auto_sync)
+        self.frame.bind("<Destroy>", lambda e: self._stop_sync() if e.widget is self.frame else None, add="+")
 
     # ---- layout ------------------------------------------------------------------------------
     def _build(self):
@@ -138,6 +173,9 @@ class StringBuilderTab:
         _btn(bar, "Copy string", self.copy, "primary", font=("Segoe UI", 9, "bold"), pady=4, padx=8).pack(side="right")
         _btn(bar, "Clear preview", self.clear_preview, font=("Segoe UI", 9), pady=4, padx=8).pack(side="right", padx=4)
         _btn(bar, "Spawn preview", self.spawn_preview, "success", font=("Segoe UI", 9, "bold"), pady=4, padx=8).pack(side="right")
+        _btn(bar, "⟳", self.sync_server, font=("Segoe UI", 9), pady=4, padx=6).pack(side="left", padx=(10, 2))
+        self.sync_label = _label(bar, "Items: the addon's list", fg=MUTED, font=("Segoe UI", 8))
+        self.sync_label.pack(side="left")
         tgt = tk.Frame(bar, bg=BG)
         tgt.pack(side="right", padx=8)
         _label(tgt, "Target:", fg=MUTED).pack(side="left")
@@ -207,6 +245,7 @@ class StringBuilderTab:
         self.tree.tag_configure("slot", foreground="#7fa7c9")
         self.tree.tag_configure("unknown", foreground=RED)
         self.tree.bind("<<TreeviewSelect>>", lambda e: self._on_tree_select())
+        self.tree.bind("<Double-Button-1>", lambda e: self._on_tree_double())
 
         props = tk.Frame(p, bg=SURF)
         props.pack(fill="x", padx=6, pady=(0, 6))
@@ -220,7 +259,9 @@ class StringBuilderTab:
         self.piece_box = ttk.Combobox(rowp, textvariable=self.piece_var, values=[WHOLE], state="readonly",
                                       style="SB.TCombobox", font=("Segoe UI", 9))
         self.piece_box.pack(side="left", fill="x", expand=True)
-        self.piece_box.bind("<<ComboboxSelected>>", lambda e: self._show_material())
+        self.piece_box.bind("<<ComboboxSelected>>", lambda e: (self._show_material(), self.draw()))
+        self.pieces_btn = _btn(rowp, "🎨 Pieces…", self.open_piece_editor, font=("Segoe UI", 8), pady=1, padx=6)
+        self.pieces_btn.pack(side="left", padx=(4, 0))
         row = tk.Frame(props, bg=SURF)
         row.pack(fill="x", pady=2)
         _label(row, "Material", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
@@ -244,21 +285,11 @@ class StringBuilderTab:
         row3 = tk.Frame(props, bg=SURF)
         row3.pack(fill="x", pady=2)
         _label(row3, "Holds", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
-        self._item_types = self.cat.item_types()
         self.dock_type_var = tk.StringVar()
-        self.dock_box = ttk.Combobox(row3, textvariable=self.dock_type_var, values=[n for _, n in self._item_types],
-                                     style="SB.TCombobox", font=("Segoe UI", 9), width=8)
-        self.dock_box.pack(side="left", fill="x", expand=True)
-        _label(row3, "×", fg=MUTED, bg=SURF, font=("Segoe UI", 9)).pack(side="left", padx=2)
         self.dock_qty_var = tk.StringVar(value="1")
-        self.dock_qty = tk.Entry(row3, textvariable=self.dock_qty_var, width=5, bg=SURF2, fg=PARCH,
-                                 disabledbackground=BG, disabledforeground=MUTED,
-                                 insertbackground=AMBER, relief="flat", font=("Segoe UI", 9), bd=3)
-        self.dock_qty.pack(side="left")
-        self.dock_set_btn = _btn(row3, "Set", self._apply_dock, font=("Segoe UI", 8), pady=1, padx=6)
-        self.dock_set_btn.pack(side="left", padx=(4, 2))
-        self.dock_empty_btn = _btn(row3, "Empty", self._empty_dock, font=("Segoe UI", 8), pady=1, padx=6)
-        self.dock_empty_btn.pack(side="left")
+        self.dock_btn = _btn(row3, "Select a dock to fill it", self.open_dock_picker, font=("Segoe UI", 8),
+                             pady=2, padx=8, anchor="w")
+        self.dock_btn.pack(side="left", fill="x", expand=True)
         row4 = tk.Frame(props, bg=SURF)
         row4.pack(fill="x", pady=(4, 0))
         _btn(row4, "📎 Attach a string to this slot…", self._attach_string_dialog, font=("Segoe UI", 8),
@@ -274,6 +305,7 @@ class StringBuilderTab:
         self.canvas.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.canvas.bind("<Configure>", lambda e: self.draw())
         self.canvas.bind("<Button-1>", lambda e: self.click_at(e.x, e.y))
+        self.canvas.bind("<Double-Button-1>", lambda e: self.double_click_at(e.x, e.y))
         self.canvas.bind("<MouseWheel>", self._on_wheel)
         self.canvas.bind("<ButtonPress-3>", self._pan_start)
         self.canvas.bind("<B3-Motion>", self._pan_move)
@@ -500,6 +532,11 @@ class StringBuilderTab:
         walk("", 0)
         self.tree.column("#0", minwidth=widest + 8, width=widest + 8, stretch=True)
 
+    def _on_tree_double(self):
+        sel = self.tree.selection()
+        if sel and sel[0] in self._row_map and self._row_map[sel[0]][0] == "part":
+            self.open_piece_editor(self._row_map[sel[0]][1])
+
     def _on_tree_select(self):
         if getattr(self, "_suppress", False):
             return
@@ -521,6 +558,7 @@ class StringBuilderTab:
             self.scale_var.set("")
             self.piece_box.config(values=[WHOLE], state="disabled")
             self.piece_var.set(WHOLE)
+            self.pieces_btn.config(state="disabled")
             self._refresh_dock()
             return
         title = self.cat.prefab_name(p.hash)
@@ -535,6 +573,7 @@ class StringBuilderTab:
             self.piece_var.set(options[0] if options else NO_MATERIAL)
         self._show_material()
         self._refresh_dock()
+        self.pieces_btn.config(state="normal" if names else "disabled")
         self.scale_var.set(("%g" % self.ss.root.scale))  # only the base item's scale counts; it sizes the whole build
 
     def _piece_hash(self):
@@ -588,19 +627,113 @@ class StringBuilderTab:
 
     def _refresh_dock(self):
         d = self._selected_dock()
-        on = "normal" if d else "disabled"
-        for w in (self.dock_box, self.dock_qty, self.dock_set_btn, self.dock_empty_btn):
-            w.config(state=on)
         held = edits.get_dock(d[0], d[1], self.cat) if d else None
         self.dock_type_var.set(self.cat.item_type_name(held[0]) if held else "")
         self.dock_qty_var.set(str(held[1]) if held else "1")
+        if not d:
+            self.dock_btn.config(text="Select a dock to fill it", state="disabled")
+        else:
+            self.dock_btn.config(text=("◆ %d × %s   ▾" % (held[1], self.cat.item_type_name(held[0])) if held
+                                       else "Empty · choose what it holds   ▾"), state="normal")
+
+    def open_dock_picker(self):
+        d = self._selected_dock()
+        return dialogs.DockPicker(self, d[0], d[1]) if d else None
+
+    def open_piece_editor(self, prefab=None):
+        """The piece editor for a crafted item (one with pieces); None for anything else."""
+        p = prefab or self.sel_prefab
+        if self.ss is None or p is None or not self.cat.pieces(p.hash):
+            return None
+        return dialogs.PieceEditor(self, p)
+
+    def name_material(self, h, name):
+        """Names a material the addon doesn't know; kept on this PC for every string."""
+        names = liveinfo.load_named_materials(named_materials_path())
+        names[int(h)] = name
+        try:
+            liveinfo.save_named_materials(named_materials_path(), names)
+        except OSError:
+            pass
+        self.cat.learn_material(name, h)
+        self._materials = [(None, "(none)")] + self.cat.materials()
+        self.mat_box.config(values=[n for _, n in self._materials])
+        self.refresh()
+
+    # ---- the connected server's own lists ------------------------------------------------------
+    def _host(self):
+        v = getattr(self.window, "v_host", None)
+        try:
+            return v.get() if v is not None else "server"
+        except Exception:
+            return "server"
+
+    def _stop_sync(self):
+        try:
+            self.frame.after_cancel(self._sync_job)
+        except (tk.TclError, ValueError):
+            pass
+
+    def _auto_sync(self):
+        try:
+            if getattr(self.window, "_connected", False) and self._synced_host != self._host():
+                self.sync_server()
+            self._sync_job = self.frame.after(3000, self._auto_sync)
+        except tk.TclError:
+            pass  # the tab was closed
+
+    def sync_server(self):
+        """Reads items, parts and dock item types from the connected server, so modded ones work too."""
+        if not getattr(self.window, "_connected", False):
+            _info("Not connected", "Connect TavernKeeper to a server first.", parent=self.frame)
+            return
+        host = self._host()
+        self._synced_host = host
+        self.sync_label.config(text="Items: reading the server…", fg=MUTED)
+        replies = {}
+
+        def step(i):
+            if i == len(liveinfo.COMMANDS):
+                return self._finish_sync(host, replies)
+            cmd = liveinfo.COMMANDS[i]
+
+            def got(_rs, rd):
+                replies[cmd] = rd
+                step(i + 1)
+            self.window._send_and_capture(cmd, got, max_wait=30.0)
+        step(0)
+
+    def _finish_sync(self, host, replies):
+        live = liveinfo.parse(replies.get("spawn infodump"), replies.get("repair-box list-items"))
+        if not live["prefabs"]:
+            cached = liveinfo.load_cache(liveinfo.cache_path(_data_dir(), host))
+            if not cached:
+                self.sync_label.config(text="Items: the addon's list (server didn't answer)", fg=RED)
+                return
+            live, note = cached, " (saved copy)"
+        else:
+            note = ""
+            try:
+                liveinfo.save_cache(liveinfo.cache_path(_data_dir(), host), live)
+            except OSError:
+                pass
+        global _catalog
+        cat = fresh_catalog()
+        cat.apply_live(live)
+        _catalog = self.cat = cat
+        self._materials = [(None, "(none)")] + cat.materials()
+        self.mat_box.config(values=[n for _, n in self._materials])
+        new = sum(1 for p in cat.prefabs.values() if p.get("live_only"))
+        self.sync_label.config(text="Items: from %s ✓ %d items%s%s" % (
+            host, len(live["prefabs"]), (", %d new" % new) if new else "", note), fg=GREEN)
+        self.refresh()
 
     def _apply_dock(self):
         d = self._selected_dock()
         if not d:
             return
         name = self.dock_type_var.get().strip().lower()
-        t = next((h for h, n in self._item_types if n.lower() == name), None)
+        t = next((h for h, n in self.cat.item_types() if n.lower() == name), None)
         if t is None:
             _info("Dock holds", "Pick an item type from the list.", parent=self.frame)
             return
@@ -614,6 +747,7 @@ class StringBuilderTab:
         edits.set_dock(self.ss, d[0], d[1], t, q, self.cat)
         self.dirty = True
         self.refresh()
+        return True
 
     def _empty_dock(self):
         d = self._selected_dock()
@@ -737,12 +871,22 @@ class StringBuilderTab:
             return
         view = self._pick_view()
         shapes = layout2d.layout(self.ss.root, self.cat, view)
-        scale, ox, oy = layout2d.fit(shapes, w, h, 24)
+        world = render2d.polygons(self.ss.root, self.cat, self.vis, view)
+        scale, ox, oy = render2d.fit_points(world, w, h, 24) if world else layout2d.fit(shapes, w, h, 24)
         scale *= self.zoom
         ox = w / 2 + (ox - w / 2) * self.zoom
         oy = h / 2 + (oy - h / 2) * self.zoom
         ox += self.pan_x
         oy += self.pan_y
+        piece = self._piece_hash() if self.sel_prefab is not None else None
+        hl = {piece} if isinstance(piece, int) else set()
+        img, self._polys = render2d.render(self.ss.root, self.cat, self.vis, view, w, h, (scale, ox, oy),
+                                           selected=self.sel_prefab, highlight=hl, grid=True)
+        textured = img is not None and ImageTk is not None
+        if textured:
+            self._photo = ImageTk.PhotoImage(img)
+            c.create_image(0, 0, anchor="nw", image=self._photo)
+        self._depth = {id(s.prefab): s.depth for s in shapes}
         colours = [AMBER, "#7fa7c9", "#c9a0dc", GREEN, "#d98a6a"]
         for i, s in enumerate(shapes):
             x0, y0, x1, y1 = layout2d.to_canvas(s.rect, scale, ox, oy)
@@ -750,7 +894,8 @@ class StringBuilderTab:
             col = colours[s.depth % len(colours)]
             tag = "shape%d" % i
             c.create_rectangle(x0, y0, x1, y1, outline="#ffd080" if sel else col, width=2.5 if sel else 1.2,
-                               fill="#3d311d" if sel else "", tags=("part", tag))
+                               fill="#3d311d" if sel else "", tags=("part", tag),
+                               state="hidden" if textured else "normal")  # the picture shows the parts
             self._shape_map[tag] = s
             self._hits.append(("part", (min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)), s))
         for s in shapes:  # labels and slot markers on top
@@ -768,7 +913,22 @@ class StringBuilderTab:
                               dash=() if sel else (2, 2), width=2 if sel else 1, tags=("slotpoint", tag))
                 self._hits.append(("slot", (px, py), (s.prefab, h_)))
         c.create_text(6, h - 6, text=view.title() + " view", anchor="sw", fill=MUTED, font=("Segoe UI", 8))
-        c.create_text(w - 6, h - 6, text="scroll: zoom · right-drag: move", anchor="se", fill=MUTED, font=("Segoe UI", 8))
+        c.create_text(w - 6, h - 6, text="scroll: zoom · right-drag: move · double-click: pieces", anchor="se", fill=MUTED,
+                      font=("Segoe UI", 8))
+
+    def _part_under(self, x, y):
+        """The polygon under the point: attached parts win over what they're attached to, then the nearest."""
+        under = [q for q in self._polys if render2d._inside(q.points, x, y)]
+        return max(under, key=lambda q: (self._depth.get(id(q.prefab), 0), q.depth)) if under else None
+
+    def double_click_at(self, x, y):
+        """Opens the piece editor for the crafted item under the pointer."""
+        q = self._part_under(x, y)
+        if q is None:
+            return None
+        self.sel_prefab, self.sel_slot = q.prefab, None
+        self.refresh()
+        return self.open_piece_editor(q.prefab)
 
     def click_at(self, x, y):
         """Empty-slot markers win within 8 px; otherwise the most deeply attached (then smallest) part under the pointer."""
@@ -776,6 +936,13 @@ class StringBuilderTab:
             if kind == "slot" and (where[0] - x) ** 2 + (where[1] - y) ** 2 <= 64:
                 self.select_slot(*what)
                 return
+        q = self._part_under(x, y)
+        if q is not None:
+            self.sel_prefab, self.sel_slot = q.prefab, None
+            if q.piece and q.entity in dict(self.cat.pieces(q.prefab.hash)):
+                self.piece_var.set(dict(self.cat.pieces(q.prefab.hash))[q.entity])
+            self.refresh()
+            return
         best = None
         for kind, where, what in self._hits:
             if kind == "part" and where[0] - 2 <= x <= where[2] + 2 and where[1] - 2 <= y <= where[3] + 2:

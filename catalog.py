@@ -15,6 +15,15 @@ METAL_NAMES = {
 }
 
 
+def _live_kind(name: str, saved: List[str]) -> str:
+    """What a part the shipped data doesn't know is: a dock saves PickupDock; slots are named "Slot ..."."""
+    if "PickupDock" in saved:
+        return "dock"
+    if name.lower().startswith("slot"):
+        return "slot"
+    return "other"
+
+
 def _slot_label(name: str) -> str:
     name = re.sub(r"\s*\(\d+\)$", "", name).strip()
     if name.lower().startswith("slot "):
@@ -31,6 +40,7 @@ class Catalog:
         self._components = {int(h): n for h, n in data.get("components", {}).items()}
         self._component_by_name = {n: h for h, n in self._components.items()}
         self._item_types = {int(h): n for h, n in data.get("item_types", {}).items()}
+        self.live = False  # True once the connected server's own lists are applied
         self._sorted = sorted(self.prefabs.items(), key=lambda kv: kv[1]["name"].lower())
 
     @classmethod
@@ -46,6 +56,36 @@ class Catalog:
     @classmethod
     def empty(cls) -> "Catalog":
         return cls({})
+
+    # ---- the connected server's own lists (liveinfo) -------------------------------------------
+    def apply_live(self, live: dict) -> None:
+        """Takes item parts, dock item types and material names from the server; keeps shipped sizes and slots."""
+        for h, name, embeds in live.get("prefabs", []):
+            p = self.prefabs.get(h)
+            if p is None:
+                p = self.prefabs[h] = {"name": name, "bounds": None, "plug": None, "plug_types": [], "embeds": {},
+                                       "live_only": True}
+            known = p["embeds"]
+            fresh = {}
+            for eh, ename, saved in embeds:
+                e = dict(known.get(str(eh)) or {"name": ename, "slot_types": [], "pos": None, "rot": None,
+                                                 "kind": _live_kind(ename, saved)})
+                e["saved"] = list(saved)
+                fresh[str(eh)] = e
+            p["embeds"] = fresh
+            p["embed_order"] = [eh for eh, _n, _s in embeds]
+            p["root_entity"] = embeds[0][0] if embeds else None
+        if live.get("item_types"):
+            self._item_types = {h: n for h, n in live["item_types"]}
+        self._sorted = sorted(self.prefabs.items(), key=lambda kv: kv[1]["name"].lower())
+        self.live = True
+
+    def learn_material(self, name: str, h: int) -> None:
+        """Names a material the shipped data doesn't know (a modded one, seen in a string)."""
+        self._materials[int(h)] = name
+
+    def knows_material(self, h: int) -> bool:
+        return h in self._materials
 
     # ---- names ---------------------------------------------------------------------------------
     def prefab_name(self, h: int) -> str:
@@ -132,15 +172,15 @@ class Catalog:
     def fits(self, prefab_h: int, embed_h: int, item_h: int) -> bool:
         """True if the item normally goes in that slot. Docks take anything (no rule in the data)."""
         e = self.embed(prefab_h, embed_h)
-        if not e or e["kind"] != "slot":
-            return True
+        if not e or e["kind"] != "slot" or not e.get("slot_types"):
+            return True  # docks, and slots nothing is known about (modded items)
         item = self.prefabs.get(item_h)
         return bool(item and set(item.get("plug_types", [])) & set(e.get("slot_types", [])))
 
     @staticmethod
     def hidden(p: dict) -> bool:
         """Invisible world objects (logic, spawners, growth stages, teleporter nodes): no size, or "(...)" names."""
-        return not p.get("bounds") or p["name"].startswith("(")
+        return (not p.get("bounds") and not p.get("live_only")) or p["name"].startswith("(")
 
     def search(self, query: str, fits: Optional[Tuple[int, int]] = None, limit: int = 200,
                include_hidden: bool = False) -> List[Tuple[int, str]]:
