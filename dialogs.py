@@ -125,7 +125,8 @@ class PieceEditor:
         top = self.top = _window(tab, "Pieces · " + cat.prefab_name(prefab.hash), "900x600")
 
         _label(top, cat.prefab_name(prefab.hash), fg=AMBER, font=("Georgia", 12, "bold")).pack(anchor="w", padx=12, pady=(10, 0))
-        _label(top, "Click a piece on the drawing or in the list (Ctrl-click for more), then click a material.",
+        _label(top, "Click a piece on the drawing or in the list (Ctrl-click for more), then click a material." if
+               self.pieces else "Click a material to change what the item is made of.",
                fg=MUTED, font=("Segoe UI", 8)).pack(anchor="w", padx=12)
         body = tk.Frame(top, bg=BG)
         body.pack(fill="both", expand=True, padx=12, pady=8)
@@ -176,6 +177,8 @@ class PieceEditor:
         _btn(foot, "Done", top.destroy, "primary", font=("Segoe UI", 9, "bold"), pady=4, padx=14).pack(side="right")
         _label(foot, "Changes go straight into your string.", fg=MUTED, font=("Segoe UI", 8)).pack(side="left")
         self._fill_list()
+        if not self.pieces:
+            self.select({WHOLE_ITEM})  # nothing else to pick
         _finish_dark_window(top)
 
     # ---- state ---------------------------------------------------------------------------------
@@ -212,7 +215,7 @@ class PieceEditor:
         self.redraw()
 
     def select_all(self):
-        self.select(h for h, _ in self.pieces)
+        self.select([h for h, _ in self.pieces] or [WHOLE_ITEM])
 
     def _from_list(self):
         self.select(self._order[i] for i in self.list.curselection())
@@ -266,13 +269,10 @@ class PieceEditor:
     def redraw(self):
         c = self.canvas
         w, h = max(c.winfo_width(), 50), max(c.winfo_height(), 50)
-        hl = set(self.selected) | ({self.hover} if self.hover is not None else set())
-        if WHOLE_ITEM in hl:
-            hl |= {q.entity for q in (self.tab.vis.parts(self.prefab.hash) if self.tab.vis else [])
-                   if q.entity not in dict(self.pieces)}
         alone = self._alone()
         img, self._polys = render2d.render(alone, self.tab.cat, self.tab.vis, self.view, w, h, selected=alone,
-                                           highlight=hl or {-1}, margin=30)
+                                           highlight=self._entities(self.selected) or {-1}, margin=30,
+                                           hover=self._entities({self.hover} if self.hover is not None else set()))
         for q in self._polys:
             q.prefab = alone
         c.delete("all")
@@ -282,6 +282,14 @@ class PieceEditor:
         else:
             for q in self._polys:
                 c.create_polygon(*[v for pt in q.points for v in pt], fill=q.color, outline="#000")
+
+    def _entities(self, chosen):
+        """Mesh owners to light up: "the item itself" stands for every mesh that isn't a piece."""
+        out = set(chosen) - {WHOLE_ITEM}
+        if WHOLE_ITEM in chosen:
+            out |= {q.entity for q in (self.tab.vis.parts(self.prefab.hash) if self.tab.vis else [])
+                    if q.entity not in dict(self.pieces)}
+        return out
 
     def _set_hover(self, e):
         if e != self.hover:

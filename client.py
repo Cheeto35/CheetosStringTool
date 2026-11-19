@@ -260,7 +260,7 @@ class StringBuilderTab:
                                       style="SB.TCombobox", font=("Segoe UI", 9))
         self.piece_box.pack(side="left", fill="x", expand=True)
         self.piece_box.bind("<<ComboboxSelected>>", lambda e: (self._show_material(), self.draw()))
-        self.pieces_btn = _btn(rowp, "🎨 Pieces…", self.open_piece_editor, font=("Segoe UI", 8), pady=1, padx=6)
+        self.pieces_btn = _btn(rowp, "🎨 Materials…", self.open_piece_editor, font=("Segoe UI", 8), pady=1, padx=6)
         self.pieces_btn.pack(side="left", padx=(4, 0))
         row = tk.Frame(props, bg=SURF)
         row.pack(fill="x", pady=2)
@@ -573,7 +573,7 @@ class StringBuilderTab:
             self.piece_var.set(options[0] if options else NO_MATERIAL)
         self._show_material()
         self._refresh_dock()
-        self.pieces_btn.config(state="normal" if names else "disabled")
+        self.pieces_btn.config(state="normal" if options else "disabled")
         self.scale_var.set(("%g" % self.ss.root.scale))  # only the base item's scale counts; it sizes the whole build
 
     def _piece_hash(self):
@@ -641,9 +641,9 @@ class StringBuilderTab:
         return dialogs.DockPicker(self, d[0], d[1]) if d else None
 
     def open_piece_editor(self, prefab=None):
-        """The piece editor for a crafted item (one with pieces); None for anything else."""
+        """The materials window for an item that has a material or pieces; None for anything else."""
         p = prefab or self.sel_prefab
-        if self.ss is None or p is None or not self.cat.pieces(p.hash):
+        if self.ss is None or p is None or not (self.cat.pieces(p.hash) or self.cat.has_own_material(p.hash)):
             return None
         return dialogs.PieceEditor(self, p)
 
@@ -913,7 +913,7 @@ class StringBuilderTab:
                               dash=() if sel else (2, 2), width=2 if sel else 1, tags=("slotpoint", tag))
                 self._hits.append(("slot", (px, py), (s.prefab, h_)))
         c.create_text(6, h - 6, text=view.title() + " view", anchor="sw", fill=MUTED, font=("Segoe UI", 8))
-        c.create_text(w - 6, h - 6, text="scroll: zoom · right-drag: move · double-click: pieces", anchor="se", fill=MUTED,
+        c.create_text(w - 6, h - 6, text="scroll: zoom · right-drag: move · double-click: materials", anchor="se", fill=MUTED,
                       font=("Segoe UI", 8))
 
     def _part_under(self, x, y):

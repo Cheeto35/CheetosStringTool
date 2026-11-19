@@ -126,8 +126,11 @@ class _Tiles:
 
 
 def render(root: Prefab, cat, vis, view: str, width: int, height: int, transform=None,
-           selected: Optional[Prefab] = None, highlight=(), margin: int = 24, grid: bool = False):
-    """(PIL image, polygons in canvas pixels, nearest last). `highlight` is a set of entity hashes on `selected`."""
+           selected: Optional[Prefab] = None, highlight=(), margin: int = 24, grid: bool = False, hover=()):
+    """(PIL image, polygons in canvas pixels, nearest last).
+
+    The selected part is tinted and outlined in bright amber; `highlight` narrows that to some of its entities
+    (pieces), and `hover` entities get a lighter tint."""
     polys = polygons(root, cat, vis, view)
     scale, ox, oy = transform or fit_points(polys, width, height, margin)
     out: List[Poly] = []
@@ -164,13 +167,32 @@ def render(root: Prefab, cat, vis, view: str, width: int, height: int, transform
         else:
             draw.polygon(q.points, fill=flat)
         draw.line(q.points + [q.points[0]], fill=_darker(flat), width=1)
-    if selected is not None:  # outlines on top so the selection reads through anything in front of it
-        for q in out:
-            if q.prefab is selected:
-                lit = q.entity in highlight
-                if lit or not highlight:
-                    draw.line(q.points + [q.points[0]], fill=SELECTED, width=2 if lit else 1)
+    if selected is not None:  # on top of everything, so the selection reads through whatever is in front of it
+        mine = [q for q in out if q.prefab is selected]
+        lit = [q for q in mine if not highlight or q.entity in highlight]
+        hov = [q for q in mine if q.entity in hover and q not in lit]
+        for group, alpha in ((hov, 60), (lit, 110)):
+            for q in group:
+                _tint(img, q.points, SELECTED, alpha)
+        for q in hov:
+            draw.line(q.points + [q.points[0]], fill="#fff1c8", width=2)
+        for q in lit:
+            draw.line(q.points + [q.points[0]], fill="#000000", width=5)
+        for q in lit:
+            draw.line(q.points + [q.points[0]], fill=SELECTED, width=3)
     return img, out
+
+
+def _tint(img, points, color, alpha):
+    xs = [x for x, _ in points]
+    ys = [y for _, y in points]
+    x0, y0 = max(int(min(xs)), 0), max(int(min(ys)), 0)
+    x1, y1 = min(int(max(xs)) + 1, img.width), min(int(max(ys)) + 1, img.height)
+    if x1 <= x0 or y1 <= y0:
+        return
+    mask = Image.new("L", (x1 - x0, y1 - y0), 0)
+    ImageDraw.Draw(mask).polygon([(x - x0, y - y0) for x, y in points], fill=alpha)
+    img.paste(color, (x0, y0, x1, y1), mask)
 
 
 _GRADIENT = None

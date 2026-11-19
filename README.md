@@ -25,7 +25,7 @@ You don't have to edit any code. Pick a base item, pick a slot, attach something
 | **Items** (left) | Type to search. Double-click an item to start a new string with it, or to put it in the selected slot. Tick "Only items that fit" to see what normally goes in that slot. You can attach anything anywhere; that's what strings are for. |
 | **Parts** (middle) | Everything in your string, with each slot and what's in it. Empty slots show as ○, and docks holding something show as ◆. Select a part to change its material or remove it. Scroll sideways to see long builds. |
 | **Piece** | Crafted items like lanterns, pouches and quivers are made of pieces (bars, flaps, straps). Pick one piece, or All pieces, and choose a material to give just that piece its own look. |
-| **🎨 Pieces…** | Opens the item on its own, drawn large. Hover to see each piece's name, click pieces (Ctrl-click for more), then click a material in the palette. Double-clicking a crafted item in the drawing or in Parts opens it too. |
+| **🎨 Materials…** | Opens the item on its own, drawn large, to change its material or its pieces' materials. Hover to see each piece's name, click pieces (Ctrl-click for more), then click a material in the palette. Double-clicking a crafted item in the drawing or in Parts opens it too. |
 | **Item scale** | Sizes the whole build. The game only uses the base item's scale. |
 | **Holds** | Select a dock (a quiver's arrow dock, a lantern's fuel dock), then click Holds to search for what goes in it and how many, like 999 arrows. |
 | **Attach a string to this slot** | Puts a whole string, with everything on it, into the selected slot or dock. Pick one from your strings or paste one from the clipboard. |
