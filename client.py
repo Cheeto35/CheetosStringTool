@@ -16,6 +16,9 @@ from .catalog import Catalog
 from .preview import PreviewTracker
 from .stringcodec import SpawnString, StringFormatError, decode, encode
 
+WHOLE, ALL = "Whole part", "All pieces"  # Piece choices besides the named pieces
+NO_MATERIAL = "(this item has no material)"
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ITEMS = os.path.join(HERE, "data", "items.json")
 LIBRARY = os.path.join(HERE, "data", "library.json")
@@ -81,7 +84,8 @@ def _style():
     st.configure("SB.Treeview", background=SURF, fieldbackground=SURF, foreground=PARCH, rowheight=22, borderwidth=0)
     st.map("SB.Treeview", background=[("selected", AMBERDIM)], foreground=[("selected", "#ffd080")])
     st.configure("SB.TCombobox", fieldbackground=SURF, background=SURF2, foreground=PARCH, arrowcolor=AMBERDIM)
-    st.map("SB.TCombobox", fieldbackground=[("readonly", SURF)], foreground=[("readonly", PARCH)])
+    st.map("SB.TCombobox", fieldbackground=[("disabled", BG), ("readonly", SURF)],
+           foreground=[("disabled", MUTED), ("readonly", PARCH)])
 
 
 def _label(parent, text, fg=PARCH, font=("Segoe UI", 9), **kw):
@@ -209,6 +213,14 @@ class StringBuilderTab:
         tk.Frame(props, bg=BORDER, height=1).pack(fill="x", pady=(0, 4))
         self.sel_title = _label(props, "Nothing selected", fg=AMBER, bg=SURF, font=("Georgia", 9, "bold"), anchor="w")
         self.sel_title.pack(fill="x")
+        rowp = tk.Frame(props, bg=SURF)
+        rowp.pack(fill="x", pady=2)
+        _label(rowp, "Piece", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
+        self.piece_var = tk.StringVar(value=WHOLE)
+        self.piece_box = ttk.Combobox(rowp, textvariable=self.piece_var, values=[WHOLE], state="readonly",
+                                      style="SB.TCombobox", font=("Segoe UI", 9))
+        self.piece_box.pack(side="left", fill="x", expand=True)
+        self.piece_box.bind("<<ComboboxSelected>>", lambda e: self._show_material())
         row = tk.Frame(props, bg=SURF)
         row.pack(fill="x", pady=2)
         _label(row, "Material", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
@@ -229,6 +241,28 @@ class StringBuilderTab:
         _btn(row2, "Set", self._apply_scale, font=("Segoe UI", 8), pady=1, padx=6).pack(side="left", padx=4)
         self.remove_btn = _btn(row2, "🗑 Remove part", self._remove_selected, "danger", font=("Segoe UI", 8), pady=1, padx=6)
         self.remove_btn.pack(side="right")
+        row3 = tk.Frame(props, bg=SURF)
+        row3.pack(fill="x", pady=2)
+        _label(row3, "Holds", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
+        self._item_types = self.cat.item_types()
+        self.dock_type_var = tk.StringVar()
+        self.dock_box = ttk.Combobox(row3, textvariable=self.dock_type_var, values=[n for _, n in self._item_types],
+                                     style="SB.TCombobox", font=("Segoe UI", 9), width=8)
+        self.dock_box.pack(side="left", fill="x", expand=True)
+        _label(row3, "×", fg=MUTED, bg=SURF, font=("Segoe UI", 9)).pack(side="left", padx=2)
+        self.dock_qty_var = tk.StringVar(value="1")
+        self.dock_qty = tk.Entry(row3, textvariable=self.dock_qty_var, width=5, bg=SURF2, fg=PARCH,
+                                 disabledbackground=BG, disabledforeground=MUTED,
+                                 insertbackground=AMBER, relief="flat", font=("Segoe UI", 9), bd=3)
+        self.dock_qty.pack(side="left")
+        self.dock_set_btn = _btn(row3, "Set", self._apply_dock, font=("Segoe UI", 8), pady=1, padx=6)
+        self.dock_set_btn.pack(side="left", padx=(4, 2))
+        self.dock_empty_btn = _btn(row3, "Empty", self._empty_dock, font=("Segoe UI", 8), pady=1, padx=6)
+        self.dock_empty_btn.pack(side="left")
+        row4 = tk.Frame(props, bg=SURF)
+        row4.pack(fill="x", pady=(4, 0))
+        _btn(row4, "📎 Attach a string to this slot…", self._attach_string_dialog, font=("Segoe UI", 8),
+             pady=2, padx=6).pack(side="left")
 
     def _build_view(self, p):
         self.view_var = tk.StringVar(value="Auto")
@@ -236,7 +270,6 @@ class StringBuilderTab:
             tk.Radiobutton(p.head, text=name, value=name, variable=self.view_var, command=self._on_view, indicatoron=False,
                            bg=SURF2, fg=PARCH, selectcolor=AMBERDIM, activebackground=SURF2, relief="flat",
                            font=("Segoe UI", 8), padx=5, bd=0).pack(side="left", padx=1)
-        _label(p.head, "scroll: zoom · right-drag: move", fg=MUTED, bg=SURF, font=("Segoe UI", 8)).pack(side="right")
         self.canvas = tk.Canvas(p, bg="#16120e", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=6, pady=(0, 6))
         self.canvas.bind("<Configure>", lambda e: self.draw())
@@ -441,7 +474,10 @@ class StringBuilderTab:
             if r.prefab is self.sel_prefab and not self.sel_slot:
                 select = iid
             for h, label in r.empty_slots:
-                sid = self.tree.insert(iid, "end", text="○ " + label + " (empty)", tags=("slot",))
+                held = edits.get_dock(r.prefab, h, self.cat)
+                text = ("◆ %s: %d × %s" % (label, held[1], self.cat.item_type_name(held[0])) if held
+                        else "○ " + label + " (empty)")
+                sid = self.tree.insert(iid, "end", text=text, tags=("slot",))
                 self._row_map[sid] = ("slot", r.prefab, h)
                 if self.sel_slot and self.sel_slot[0] is r.prefab and self.sel_slot[1] == h:
                     select = sid
@@ -483,25 +519,134 @@ class StringBuilderTab:
             self.sel_title.config(text="Nothing selected")
             self.mat_var.set("")
             self.scale_var.set("")
+            self.piece_box.config(values=[WHOLE], state="disabled")
+            self.piece_var.set(WHOLE)
+            self._refresh_dock()
             return
         title = self.cat.prefab_name(p.hash)
         if self.sel_slot:
             title += "  ·  filling " + self.cat.embed_name(p.hash, self.sel_slot[1])
         self.sel_title.config(text=title)
-        m = edits.get_material(p, self.cat)
-        self.mat_var.set(self.cat.material_name(m) if m is not None else "(none)")
+        names = [n for _, n in self.cat.pieces(p.hash)]
+        options = ([WHOLE] if self.cat.has_own_material(p.hash) else []) + ([ALL] + names if names else [])
+        self.piece_box.config(values=options or [NO_MATERIAL], state="readonly" if len(options) > 1 else "disabled")
+        self.mat_box.config(state="readonly" if options else "disabled")
+        if self.piece_var.get() not in options:
+            self.piece_var.set(options[0] if options else NO_MATERIAL)
+        self._show_material()
+        self._refresh_dock()
         self.scale_var.set(("%g" % self.ss.root.scale))  # only the base item's scale counts; it sizes the whole build
+
+    def _piece_hash(self):
+        """The selected piece's embed hash, or WHOLE / ALL."""
+        name = self.piece_var.get()
+        if name in (WHOLE, ALL, NO_MATERIAL, ""):
+            return name or WHOLE
+        return next((h for h, n in self.cat.pieces(self.sel_prefab.hash) if n == name), WHOLE)
+
+    def _show_material(self):
+        p = self.sel_prefab
+        if self.ss is None or p is None:
+            return
+        piece = self._piece_hash()
+        if piece in (ALL, NO_MATERIAL):
+            self.mat_var.set("")
+            return
+        m = edits.get_material(p, self.cat) if piece == WHOLE else edits.get_piece_material(p, piece, self.cat)
+        self.mat_var.set(self.cat.material_name(m) if m is not None else "(none)")
 
     def _apply_material(self):
         if self.ss is None or self.sel_prefab is None:
             return
         name = self.mat_var.get()
-        for h, n in self._materials:
-            if n == name and h is not None:
-                edits.set_material(self.ss, self.sel_prefab, h, self.cat)
-                self.dirty = True
-                self.refresh()
-                return
+        mat = next((h for h, n in self._materials if n == name and h is not None), None)
+        if mat is None:
+            return
+        p, piece = self.sel_prefab, self._piece_hash()
+        if piece == NO_MATERIAL:
+            return
+        if piece == WHOLE:
+            edits.set_material(self.ss, p, mat, self.cat)
+        elif piece == ALL:
+            for h, _n in self.cat.pieces(p.hash):
+                edits.set_piece_material(self.ss, p, h, mat, self.cat)
+        elif not edits.set_piece_material(self.ss, p, piece, mat, self.cat):
+            _info("Piece removed", "That piece was removed from this item in the string, so it has no material.",
+                  parent=self.frame)
+            return
+        self.dirty = True
+        self.refresh()
+
+    # ---- docks and string on string ------------------------------------------------------------
+    def _selected_dock(self):
+        """(prefab, dock hash) when the selected slot is a dock, else None."""
+        if self.ss is None or not self.sel_slot:
+            return None
+        p, h = self.sel_slot
+        e = self.cat.embed(p.hash, h)
+        return (p, h) if e and e["kind"] == "dock" else None
+
+    def _refresh_dock(self):
+        d = self._selected_dock()
+        on = "normal" if d else "disabled"
+        for w in (self.dock_box, self.dock_qty, self.dock_set_btn, self.dock_empty_btn):
+            w.config(state=on)
+        held = edits.get_dock(d[0], d[1], self.cat) if d else None
+        self.dock_type_var.set(self.cat.item_type_name(held[0]) if held else "")
+        self.dock_qty_var.set(str(held[1]) if held else "1")
+
+    def _apply_dock(self):
+        d = self._selected_dock()
+        if not d:
+            return
+        name = self.dock_type_var.get().strip().lower()
+        t = next((h for h, n in self._item_types if n.lower() == name), None)
+        if t is None:
+            _info("Dock holds", "Pick an item type from the list.", parent=self.frame)
+            return
+        try:
+            q = int(self.dock_qty_var.get())
+            if not 1 <= q <= 2000000000:
+                raise ValueError
+        except ValueError:
+            _info("Dock holds", "The amount must be a whole number from 1 up.", parent=self.frame)
+            return
+        edits.set_dock(self.ss, d[0], d[1], t, q, self.cat)
+        self.dirty = True
+        self.refresh()
+
+    def _empty_dock(self):
+        d = self._selected_dock()
+        if not d:
+            return
+        edits.clear_dock(self.ss, d[0], d[1], self.cat)
+        self.dirty = True
+        self.refresh()
+
+    def attach_string_text(self, text):
+        """Puts a whole string (with everything on it) into the selected empty slot or dock."""
+        if self.ss is None or not self.sel_slot:
+            _info("Pick a slot", "Select an empty slot or dock in Parts first, then attach a string to it.",
+                  parent=self.frame)
+            return False
+        try:
+            inner = decode(text)
+        except Exception as e:
+            _info("Not a spawn string", "That doesn't look like a spawn string.\n\n%s" % e, parent=self.frame)
+            return False
+        parent, slot_h = self.sel_slot
+        child = edits.attach_string(self.ss, parent, slot_h, inner)
+        self.dirty = True
+        self.sel_prefab, self.sel_slot = child, None
+        self.refresh()
+        return True
+
+    def _attach_string_dialog(self):
+        if self.ss is None or not self.sel_slot:
+            _info("Pick a slot", "Select an empty slot or dock in Parts first, then attach a string to it.",
+                  parent=self.frame)
+            return
+        LibraryDialog(self, attach=True)
 
     def _apply_scale(self):
         if self.ss is None or self.sel_prefab is None:
@@ -623,6 +768,7 @@ class StringBuilderTab:
                               dash=() if sel else (2, 2), width=2 if sel else 1, tags=("slotpoint", tag))
                 self._hits.append(("slot", (px, py), (s.prefab, h_)))
         c.create_text(6, h - 6, text=view.title() + " view", anchor="sw", fill=MUTED, font=("Segoe UI", 8))
+        c.create_text(w - 6, h - 6, text="scroll: zoom · right-drag: move", anchor="se", fill=MUTED, font=("Segoe UI", 8))
 
     def click_at(self, x, y):
         """Empty-slot markers win within 8 px; otherwise the most deeply attached (then smallest) part under the pointer."""
@@ -649,11 +795,12 @@ class StringBuilderTab:
 
 
 class LibraryDialog:
-    def __init__(self, tab):
+    def __init__(self, tab, attach=False):
         self.tab = tab
+        self.attach = attach  # pick a string to put into the selected slot instead of loading it
         top = self.top = tk.Toplevel(tab.frame)
         _start_hidden(top)
-        top.title("My strings")
+        top.title("Attach a string" if attach else "My strings")
         top.configure(bg=BG)
         top.geometry("560x620")
         _set_window_icon(top)
@@ -677,9 +824,14 @@ class LibraryDialog:
         self.tree.bind("<Double-Button-1>", lambda e: self.load())
         btns = tk.Frame(top, bg=BG)
         btns.pack(fill="x", padx=12, pady=10)
-        _btn(btns, "Load", self.load, "primary", font=("Segoe UI", 9, "bold"), pady=5, padx=12).pack(side="left")
-        _btn(btns, "Save current as…", self.save, font=("Segoe UI", 9), pady=5, padx=10).pack(side="left", padx=6)
-        _btn(btns, "Delete", self.delete, "danger", font=("Segoe UI", 9), pady=5, padx=10).pack(side="left")
+        if attach:
+            _btn(btns, "Attach", self.load, "primary", font=("Segoe UI", 9, "bold"), pady=5, padx=12).pack(side="left")
+            _btn(btns, "📋 From clipboard", self.from_clipboard, font=("Segoe UI", 9), pady=5, padx=10).pack(
+                side="left", padx=6)
+        else:
+            _btn(btns, "Load", self.load, "primary", font=("Segoe UI", 9, "bold"), pady=5, padx=12).pack(side="left")
+            _btn(btns, "Save current as…", self.save, font=("Segoe UI", 9), pady=5, padx=10).pack(side="left", padx=6)
+            _btn(btns, "Delete", self.delete, "danger", font=("Segoe UI", 9), pady=5, padx=10).pack(side="left")
         _label(btns, CREDIT, fg=AMBER, font=("Georgia", 9, "bold")).pack(side="right")
         self.defaults = data.get("entries", [])
         self.items = {}
@@ -708,7 +860,21 @@ class LibraryDialog:
 
     def load(self):
         it = self._selected()
-        if it and self.tab.load_string(it[0]["string"]):
+        if not it:
+            return
+        use = self.tab.attach_string_text if self.attach else self.tab.load_string
+        if use(it[0]["string"]):
+            self.top.destroy()
+
+    def from_clipboard(self):
+        try:
+            text = self.top.clipboard_get()
+        except tk.TclError:
+            text = ""
+        if not text.strip():
+            _info("Clipboard empty", "Copy a spawn string first.", parent=self.top)
+            return
+        if self.tab.attach_string_text(text):
             self.top.destroy()
 
     def save(self):

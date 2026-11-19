@@ -1,5 +1,6 @@
 """Item knowledge from data/items.json: names for prefabs, slots and materials, search, and what fits where."""
 import json
+import os
 import re
 from typing import Dict, List, Optional, Tuple
 
@@ -29,12 +30,18 @@ class Catalog:
         self._materials = {int(h): n for h, n in data.get("materials", {}).items()}
         self._components = {int(h): n for h, n in data.get("components", {}).items()}
         self._component_by_name = {n: h for h, n in self._components.items()}
+        self._item_types = {int(h): n for h, n in data.get("item_types", {}).items()}
         self._sorted = sorted(self.prefabs.items(), key=lambda kv: kv[1]["name"].lower())
 
     @classmethod
     def load(cls, path: str) -> "Catalog":
         with open(path, encoding="utf-8") as f:
-            return cls(json.load(f))
+            data = json.load(f)
+        types = os.path.join(os.path.dirname(path), "item_types.json")
+        if os.path.exists(types):
+            with open(types, encoding="utf-8") as f:
+                data["item_types"] = json.load(f).get("types", {})
+        return cls(data)
 
     @classmethod
     def empty(cls) -> "Catalog":
@@ -74,6 +81,45 @@ class Catalog:
 
     def versioning(self) -> List[int]:
         return list(self.data.get("versioning", []))
+
+    def embed_order(self, prefab_h: int) -> List[int]:
+        """The item's embedded entities in the game's order; strings must list them in this order."""
+        p = self.prefabs.get(prefab_h)
+        return list(p.get("embed_order") or [int(h) for h in p["embeds"]]) if p else []
+
+    # ---- pieces and dock contents --------------------------------------------------------------
+    MATERIAL = "PhysicalMaterialPart"
+
+    def pieces(self, prefab_h: int) -> List[Tuple[int, str]]:
+        """The sub-parts of an item (lantern bars, pouch flap...) that carry their own material.
+
+        Only parts the game saves a material for: giving one to any other part (the item's fire, its own entity)
+        makes the game drop every part listed after it."""
+        p = self.prefabs.get(prefab_h)
+        if not p:
+            return []
+        out = []
+        for h, e in p["embeds"].items():
+            if self.MATERIAL not in e.get("saved", []) or int(h) == p.get("root_entity"):
+                continue
+            label = re.sub(r"\s+", " ", e["name"].replace("_", " ")).strip()
+            out.append((int(h), label[:1].upper() + label[1:]))
+        return sorted(out, key=lambda x: x[1].lower())
+
+    def has_own_material(self, prefab_h: int) -> bool:
+        """Whether the item itself (not just its pieces) has a material, so "Whole part" applies."""
+        p = self.prefabs.get(prefab_h)
+        if not p or p.get("root_entity") is None:
+            return True  # nothing known: leave it to the player
+        own = p["embeds"].get(str(p["root_entity"]))
+        return own is None or self.MATERIAL in own.get("saved", [self.MATERIAL])
+
+    def item_types(self) -> List[Tuple[int, str]]:
+        """Item types a dock can hold (docks store these, not prefab hashes)."""
+        return sorted(self._item_types.items(), key=lambda x: x[1].lower())
+
+    def item_type_name(self, h: int) -> str:
+        return self._item_types.get(h, "Unknown item type #%d" % h)
 
     # ---- slots and search ----------------------------------------------------------------------
     def slots(self, prefab_h: int) -> List[Tuple[int, str, str]]:
