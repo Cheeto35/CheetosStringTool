@@ -1,4 +1,4 @@
-"""String Builder: a TavernKeeper tab for building, labelling, drawing, previewing and saving spawn strings.
+"""Cheetos String Tool: a TavernKeeper tab for building, labelling, drawing, previewing and saving spawn strings.
 
 Made By Cheeto. Registers itself after the Macros tab; delete this addon folder and the tab disappears.
 """
@@ -132,7 +132,7 @@ def _data_warning(cat):
         return None
     missing = len(server - set(cat.prefabs))
     if missing:
-        return ("This server has %d item(s) the String Builder doesn't know (its data is from game build %s). "
+        return ("This server has %d item(s) the String Tool doesn't know (its data is from game build %s). "
                 "Those show as 'Unknown item'." % (missing, cat.build))
     return None
 
@@ -198,13 +198,13 @@ class StringBuilderTab:
 
         bar = tk.Frame(f, bg=BG)
         bar.pack(side="top", fill="x", padx=8, pady=(8, 4))
-        _btn(bar, "📋 Paste string", self.paste, font=("Segoe UI", 9), pady=4, padx=8).pack(side="left")
-        _btn(bar, "📂 My strings", self.open_library, font=("Segoe UI", 9), pady=4, padx=8).pack(side="left", padx=4)
-        _btn(bar, "✚ New", self.new, font=("Segoe UI", 9), pady=4, padx=8).pack(side="left")
+        _btn(bar, "Paste string", self.paste, font=("Segoe UI", 9), pady=4, padx=8).pack(side="left")
+        _btn(bar, "My strings", self.open_library, font=("Segoe UI", 9), pady=4, padx=8).pack(side="left", padx=4)
+        _btn(bar, "New", self.new, font=("Segoe UI", 9), pady=4, padx=8).pack(side="left")
         _btn(bar, "Copy string", self.copy, "primary", font=("Segoe UI", 9, "bold"), pady=4, padx=8).pack(side="right")
         _btn(bar, "Clear preview", self.clear_preview, font=("Segoe UI", 9), pady=4, padx=8).pack(side="right", padx=4)
         _btn(bar, "Spawn preview", self.spawn_preview, "success", font=("Segoe UI", 9, "bold"), pady=4, padx=8).pack(side="right")
-        _btn(bar, "⟳", self.sync_server, font=("Segoe UI", 9), pady=4, padx=6).pack(side="left", padx=(10, 2))
+        _btn(bar, "Refresh", self.sync_server, font=("Segoe UI", 9), pady=4, padx=6).pack(side="left", padx=(10, 2))
         self.sync_label = _label(bar, "Items: the addon's list", fg=MUTED, font=("Segoe UI", 8))
         self.sync_label.pack(side="left")
         tgt = tk.Frame(bar, bg=BG)
@@ -215,7 +215,7 @@ class StringBuilderTab:
 
         warn = _data_warning(self.cat)
         if warn:
-            _label(f, "⚠ " + warn, fg=RED, wraplength=820, justify="left", anchor="w").pack(side="top", fill="x", padx=8)
+            _label(f, "Warning: " + warn, fg=RED, wraplength=820, justify="left", anchor="w").pack(side="top", fill="x", padx=8)
 
         body = tk.Frame(f, bg=BG)
         body.pack(side="top", fill="both", expand=True, padx=8, pady=(0, 6))
@@ -291,7 +291,7 @@ class StringBuilderTab:
                                       style="SB.TCombobox", font=("Segoe UI", 9))
         self.piece_box.pack(side="left", fill="x", expand=True)
         self.piece_box.bind("<<ComboboxSelected>>", lambda e: (self._show_material(), self.draw()))
-        self.pieces_btn = _btn(rowp, "🎨 Materials…", self.open_piece_editor, font=("Segoe UI", 8), pady=1, padx=6)
+        self.pieces_btn = _btn(rowp, "Materials…", self.open_piece_editor, font=("Segoe UI", 8), pady=1, padx=6)
         self.pieces_btn.pack(side="left", padx=(4, 0))
         row = tk.Frame(props, bg=SURF)
         row.pack(fill="x", pady=2)
@@ -311,7 +311,7 @@ class StringBuilderTab:
         se.pack(side="left")
         se.bind("<Return>", lambda e: self._apply_scale())
         _btn(row2, "Set", self._apply_scale, font=("Segoe UI", 8), pady=1, padx=6).pack(side="left", padx=4)
-        self.remove_btn = _btn(row2, "🗑 Remove part", self._remove_selected, "danger", font=("Segoe UI", 8), pady=1, padx=6)
+        self.remove_btn = _btn(row2, "Remove part", self._remove_selected, "danger", font=("Segoe UI", 8), pady=1, padx=6)
         self.remove_btn.pack(side="right")
         row3 = tk.Frame(props, bg=SURF)
         row3.pack(fill="x", pady=2)
@@ -329,7 +329,7 @@ class StringBuilderTab:
         self.attr_btn.pack(side="left", fill="x", expand=True)
         row4 = tk.Frame(props, bg=SURF)
         row4.pack(fill="x", pady=(4, 0))
-        _btn(row4, "📎 Attach a string to this slot…", self._attach_string_dialog, font=("Segoe UI", 8),
+        _btn(row4, "Attach a string to this slot…", self._attach_string_dialog, font=("Segoe UI", 8),
              pady=2, padx=6).pack(side="left")
 
     def _build_view(self, p):
@@ -436,7 +436,7 @@ class StringBuilderTab:
             return
         self.frame.clipboard_clear()
         self.frame.clipboard_append(s)
-        self._log("[String Builder] Copied the string (%d characters).\n" % len(s), "ok")
+        self._log("[String Tool] Copied the string (%d characters).\n" % len(s), "ok")
 
     def spawn_preview(self):
         if self.ss is None:
@@ -452,8 +452,8 @@ class StringBuilderTab:
 
         def done(_rs, rd):
             n = self.preview.record(rd)
-            self._log("[String Builder] Spawned %d preview item(s) for %s.\n" % (n, target) if n else
-                      "[String Builder] The server didn't spawn it. Check the console output above.\n", "ok" if n else "err")
+            self._log("[String Tool] Spawned %d preview item(s) for %s.\n" % (n, target) if n else
+                      "[String Tool] The server didn't spawn it. Check the console output above.\n", "ok" if n else "err")
         self.window._send_and_capture(cmd, done, max_wait=60.0)  # big strings can take a while to spawn
 
     def clear_preview(self):
@@ -464,7 +464,7 @@ class StringBuilderTab:
             _info("Not connected", "Connect to the server again to clear the preview.", parent=self.frame)
             return
         n = self.preview.clear(self.window._send)
-        self._log("[String Builder] Cleared %d preview item(s).\n" % n, "ok")
+        self._log("[String Tool] Cleared %d preview item(s).\n" % n, "ok")
 
     def save_user_string(self, name):
         if self.ss is None or not name:
@@ -543,7 +543,7 @@ class StringBuilderTab:
             if r.prefab is self.sel_prefab and not self.sel_slot:
                 select = iid
             if self.cat.is_gift_box(r.prefab.hash):
-                gid = self.tree.insert(iid, "end", text="🎁 " + self._gift_summary(r.prefab), tags=("slot",), open=False)
+                gid = self.tree.insert(iid, "end", text="Gift: " + self._gift_summary(r.prefab), tags=("slot",), open=False)
                 self._row_map[gid] = ("part", r.prefab, None)
                 for n, it in edits.gift_groups(edits.get_gift(r.prefab)):
                     cid = self.tree.insert(gid, "end", text=dialogs.gift_item_label(self.cat, n, it), tags=("slot",))
@@ -687,7 +687,7 @@ class StringBuilderTab:
                                  else "Select a part to change its settings", state="disabled")
             return
         changed = sum(1 for a in attrs if a.status == "set")
-        text = attributes.summary(attrs) or "⚙ %d setting%s" % (len(attrs), "" if len(attrs) == 1 else "s")
+        text = attributes.summary(attrs) or "%d setting%s" % (len(attrs), "" if len(attrs) == 1 else "s")
         self.attr_btn.config(text=text + ("  ·  %d changed" % changed if changed else "") + "   ▾", state="normal")
 
     def open_attributes(self, prefab=None):
@@ -727,7 +727,7 @@ class StringBuilderTab:
         self.dock_qty_var.set(str(held[1]) if held else "1")
         box = self._gift_box()
         if box is not None:
-            self.dock_btn.config(text="🎁 " + self._gift_summary(box) + "   ▾", state="normal")
+            self.dock_btn.config(text="Gift: " + self._gift_summary(box) + "   ▾", state="normal")
         elif not d:
             self.dock_btn.config(text="Select a dock to fill it", state="disabled")
         else:
@@ -822,7 +822,7 @@ class StringBuilderTab:
         self._materials = [(None, "(none)")] + cat.materials()
         self.mat_box.config(values=[n for _, n in self._materials])
         new = sum(1 for p in cat.prefabs.values() if p.get("live_only"))
-        self.sync_label.config(text="Items: from %s ✓ %d items%s%s" % (
+        self.sync_label.config(text="Items: from %s, %d items%s%s" % (
             host, len(live["prefabs"]), (", %d new" % new) if new else "", note), fg=GREEN)
         self.refresh()
 
@@ -1098,7 +1098,7 @@ class LibraryDialog:
         btns.pack(fill="x", padx=12, pady=10)
         if attach:
             _btn(btns, "Use" if use else "Attach", self.load, "primary", font=("Segoe UI", 9, "bold"), pady=5, padx=12).pack(side="left")
-            _btn(btns, "📋 From clipboard", self.from_clipboard, font=("Segoe UI", 9), pady=5, padx=10).pack(
+            _btn(btns, "From clipboard", self.from_clipboard, font=("Segoe UI", 9), pady=5, padx=10).pack(
                 side="left", padx=6)
         else:
             _btn(btns, "Load", self.load, "primary", font=("Segoe UI", 9, "bold"), pady=5, padx=12).pack(side="left")
@@ -1186,6 +1186,6 @@ def build_tab(parent, window):
 
 try:
     from client.core.tavernkeeper.registry import register_tab
-    register_tab("string_builder", "String Builder", build_tab, after="macros")
+    register_tab("string_builder", "String Tool", build_tab, after="macros")
 except ImportError:
     pass  # imported outside the launcher (tests)

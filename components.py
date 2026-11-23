@@ -8,7 +8,6 @@ Rules, matching how the game writes its save data:
 A value decodes only when it uses up exactly the component's bits, so anything else is left alone.
 """
 import json
-import os
 import struct
 from typing import Any, Optional
 
@@ -55,10 +54,6 @@ class Schema:
                 return any(walk(f["type"]) for f in (d.get("fields") or []) if isinstance(d.get("fields"), list))
             return False
         return any(walk(f["type"]) for f in (self.fields(component) or []))
-
-
-def default_path() -> str:
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "components.json")
 
 
 # ---- decode -----------------------------------------------------------------------------------

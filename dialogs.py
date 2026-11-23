@@ -1,4 +1,4 @@
-"""The String Builder's pop-up windows: the piece editor (an item drawn large, its pieces and a material palette),
+"""The String Tool's pop-up windows: the piece editor (an item drawn large, its pieces and a material palette),
 the dock picker (a searchable list of what a dock can hold, with an amount) and the gift box editor (the names on a
 gift mail box and what's packed inside it)."""
 import tkinter as tk
@@ -251,7 +251,7 @@ class PieceEditor:
         self.redraw()
 
     def _name_material(self, h):
-        name = simpledialog.askstring("Name this material", "This string uses material #%d, which the String Builder "
+        name = simpledialog.askstring("Name this material", "This string uses material #%d, which the String Tool "
                                       "doesn't know (it may come from a mod). What is it called?" % h, parent=self.top)
         if name and name.strip():
             self.tab.name_material(h, name.strip())
@@ -433,7 +433,7 @@ class GiftEditor:
         body.columnconfigure(1, weight=1, uniform="g")
         body.rowconfigure(1, weight=1)
         # inside the box
-        _label(body, "🎁 Inside the box", fg=AMBER, font=("Georgia", 10, "bold")).grid(row=0, column=0, sticky="w")
+        _label(body, "Inside the box", fg=AMBER, font=("Georgia", 10, "bold")).grid(row=0, column=0, sticky="w")
         box = tk.Frame(body, bg=SURF, highlightbackground=BORDER, highlightthickness=1)
         box.grid(row=1, column=0, sticky="nsew", padx=(0, 6))
         self.inside = self._listbox(box)
@@ -442,7 +442,7 @@ class GiftEditor:
         self.inside_count.grid(row=2, column=0, sticky="w")
         ib = tk.Frame(body, bg=BG)
         ib.grid(row=3, column=0, sticky="w", pady=(2, 0))
-        _btn(ib, "🗑 Take out", self.remove, "danger", font=("Segoe UI", 8), pady=2, padx=8).pack(side="left")
+        _btn(ib, "Take out", self.remove, "danger", font=("Segoe UI", 8), pady=2, padx=8).pack(side="left")
         _btn(ib, "− 1", lambda: self.remove(1), font=("Segoe UI", 8), pady=2, padx=8).pack(side="left", padx=4)
         # adding
         _label(body, "Add an item", fg=AMBER, font=("Georgia", 10, "bold")).grid(row=0, column=1, sticky="w")
@@ -468,9 +468,9 @@ class GiftEditor:
             _btn(amt, str(n), lambda n=n: self.qty.set(str(n)), font=("Segoe UI", 8), pady=1, padx=6).pack(side="left", padx=1)
         ab = tk.Frame(body, bg=BG)
         ab.grid(row=3, column=1, sticky="w", pady=(2, 0))
-        _btn(ab, "＋ Put in box", self.add, "primary", font=("Segoe UI", 9, "bold"), pady=3, padx=10).pack(side="left")
-        _btn(ab, "📂 A saved string…", self.add_from_library, font=("Segoe UI", 8), pady=3, padx=8).pack(side="left", padx=4)
-        _btn(ab, "📋 Paste string", self.add_from_clipboard, font=("Segoe UI", 8), pady=3, padx=8).pack(side="left")
+        _btn(ab, "+ Put in box", self.add, "primary", font=("Segoe UI", 9, "bold"), pady=3, padx=10).pack(side="left")
+        _btn(ab, "A saved string…", self.add_from_library, font=("Segoe UI", 8), pady=3, padx=8).pack(side="left", padx=4)
+        _btn(ab, "Paste string", self.add_from_clipboard, font=("Segoe UI", 8), pady=3, padx=8).pack(side="left")
         btns = tk.Frame(top, bg=BG)
         btns.pack(fill="x", padx=12, pady=(6, 10))
         _btn(btns, "Done", self.close, "primary", font=("Segoe UI", 9, "bold"), pady=4, padx=14).pack(side="right")

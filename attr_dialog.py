@@ -109,7 +109,7 @@ class AttributeEditor:
         if a.status == "default":
             _btn(head, "Change", lambda: self.start(a), font=("Segoe UI", 8), pady=1, padx=8).pack(side="right")
         elif a.status == "set":
-            _btn(head, "↺ Normal values", lambda: self.reset(a), font=("Segoe UI", 8), pady=1, padx=8).pack(side="right")
+            _btn(head, "Normal values", lambda: self.reset(a), font=("Segoe UI", 8), pady=1, padx=8).pack(side="right")
         _label(frame, text, fg=colour, bg=SURF, font=("Segoe UI", 8)).pack(anchor="w")
         if a.status == "set":
             body = tk.Frame(frame, bg=SURF, highlightbackground=BORDER, highlightthickness=1)
@@ -307,7 +307,7 @@ class AttributeEditor:
                 else:
                     items.append(C.blank(self.schema, of))
                 self.commit(a, True)
-            _btn(head, "＋ Add", add, font=("Segoe UI", 8), pady=0, padx=6).pack(side="left")
+            _btn(head, "+ Add", add, font=("Segoe UI", 8), pady=0, padx=6).pack(side="left")
             sub = tk.Frame(parent, bg=SURF)
             sub.pack(fill="x", padx=(18, 6))
             for i in range(len(items)):
@@ -320,7 +320,7 @@ class AttributeEditor:
                 def remove(i=i):
                     del items[i]
                     self.commit(a, True)
-                _btn(bar, "✕", remove, "danger", font=("Segoe UI", 7), pady=0, padx=4).pack(side="right")
+                _btn(bar, "Remove", remove, "danger", font=("Segoe UI", 7), pady=0, padx=4).pack(side="right")
                 if of["k"] == "class":
                     if items[i] is None:
                         items[i] = C.blank_class(self.schema, of["name"])

@@ -17,33 +17,33 @@ except ImportError:  # loaded outside the package (tools)
     import edits
     from stringcodec import Component, Prefab, SpawnString
 
-# handled elsewhere in the String Builder, or only meaningful to the game itself
+# handled elsewhere in the String Tool, or only meaningful to the game itself
 HIDDEN = {"NetworkRigidbody", "Pickup", "PhysicalMaterialPart", "PickupDock", "SentGift"}
 
 # component -> (icon and title, {field path: label}, fields to leave out); paths are dotted ("customData.color")
 FRIENDLY = {
-    "LiquidContainer": ("🧪 Liquid", {
+    "LiquidContainer": ("Liquid", {
         "hasContent": "Has liquid in it", "contentLevel": "Amount", "isCustom": "Custom mix instead of a preset",
         "preset": "Preset liquid", "customData": "Custom mix", "canAddTo": "Can be filled",
         "canRemoveFrom": "Can be poured out", "customData.color": "Colour",
         "customData.isConsumableThroughSkin": "Works when splashed on skin", "customData.liquidVisualData": "Looks like",
         "customData.effects": "Effects", "customData.effects.definition": "Effect",
         "customData.effects.strengthMultiplier": "Strength", "customData.chunks": "Floating bits"}, ()),
-    "Fuse": ("🧨 Fuse", {"isLit": "Lit", "currentFuseAmount": "Fuse left (1 = full)", "isFinished": "Already went off"}, ()),
-    "ColoredExplosive": ("🎆 Firework colour", {"colorIndex": "Colour number"}, ()),
-    "DurabilityModule": ("🛡 Durability", {"integrity": "Condition (1 = new, 0 = broken)"}, ()),
-    "BasicDecay": ("⏳ Despawning", {"isDisabled": "Never despawns"}, ("timelineEntry",)),
-    "Cookable": ("🍖 Cooking", {"cookedProgress": "Cooked (0 to 1)", "burntProgress": "Burnt (0 to 1)"}, ()),
-    "Enchantable": ("✨ Enchantments", {"enchantments": "Enchantments"}, ()),
-    "Fire": ("🔥 Fire", {"fuelConsumptionProgress": "Fuel used (0 to 1)"}, ()),
-    "HeatSourceBase": ("🔥 Heat", {"isLit": "Lit", "progress": "Progress"}, ("time",)),
-    "Mould": ("🧱 Mould", {"definition": "Shape", "usage": "Uses"}, ()),
-    "StatManager": ("📊 Stats", {"stats": "Stats", "stats.definition": "Stat", "stats.baseFlat": "Value",
+    "Fuse": ("Fuse", {"isLit": "Lit", "currentFuseAmount": "Fuse left (1 = full)", "isFinished": "Already went off"}, ()),
+    "ColoredExplosive": ("Firework colour", {"colorIndex": "Colour number"}, ()),
+    "DurabilityModule": ("Durability", {"integrity": "Condition (1 = new, 0 = broken)"}, ()),
+    "BasicDecay": ("Despawning", {"isDisabled": "Never despawns"}, ("timelineEntry",)),
+    "Cookable": ("Cooking", {"cookedProgress": "Cooked (0 to 1)", "burntProgress": "Burnt (0 to 1)"}, ()),
+    "Enchantable": ("Enchantments", {"enchantments": "Enchantments"}, ()),
+    "Fire": ("Fire", {"fuelConsumptionProgress": "Fuel used (0 to 1)"}, ()),
+    "HeatSourceBase": ("Heat", {"isLit": "Lit", "progress": "Progress"}, ("time",)),
+    "Mould": ("Mould", {"definition": "Shape", "usage": "Uses"}, ()),
+    "StatManager": ("Stats", {"stats": "Stats", "stats.definition": "Stat", "stats.baseFlat": "Value",
                                 "modifiers": "Timed changes", "indirectModifiers": "Effects over time"}, ()),
-    "LevelStatModifier": ("📈 Level", {"currentLevel": "Level"}, ()),
-    "CookingPot": ("🍲 Cooking pot", {"currentStage": "Stage"}, ()),
-    "StewManager": ("🍲 Stew", {"ingredients": "Ingredients", "garnishes": "Garnishes", "liquidBase": "Base liquid"}, ()),
-    "HealthBasedDigable": ("⛏ Dig health", {"currentHealth": "Health left"}, ()),
+    "LevelStatModifier": ("Level", {"currentLevel": "Level"}, ()),
+    "CookingPot": ("Cooking pot", {"currentStage": "Stage"}, ()),
+    "StewManager": ("Stew", {"ingredients": "Ingredients", "garnishes": "Garnishes", "liquidBase": "Base liquid"}, ()),
+    "HealthBasedDigable": ("Dig health", {"currentHealth": "Health left"}, ()),
 }
 ORDER = list(FRIENDLY)
 
@@ -66,7 +66,7 @@ def pretty(name: str) -> str:
 
 def title(component: str) -> str:
     f = FRIENDLY.get(component)
-    return f[0] if f else "⚙ " + pretty(component)
+    return f[0] if f else pretty(component)
 
 
 def label(component: str, path: str) -> str:
@@ -233,7 +233,7 @@ def reset(ss: SpawnString, p: Prefab, a: Attr, cat) -> None:
 
 
 def summary(attrs: List[Attr]) -> str:
-    """'🧪 Liquid · 🧨 Fuse' for the item's friendly attributes."""
+    """'Liquid · Fuse' for the item's friendly attributes."""
     seen = []
     for a in attrs:
         if a.friendly and title(a.component) not in seen:
