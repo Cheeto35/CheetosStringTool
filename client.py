@@ -4,6 +4,7 @@ Made By Cheeto. Registers itself after the Macros tab; delete this addon folder 
 """
 import json
 import os
+import threading
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import messagebox, simpledialog, ttk
@@ -33,6 +34,8 @@ LIBRARY = os.path.join(HERE, "data", "library.json")
 COMPONENTS = os.path.join(HERE, "data", "components.json")
 REFS = os.path.join(HERE, "data", "refs.json")
 CREDIT = "Made By Cheeto"
+# Strings longer than this are spawned without TavernKeeper printing them whole (Tk freezes on very long lines).
+LONG_STRING = 5000
 
 
 def _data_dir():
@@ -451,12 +454,37 @@ class StringBuilderTab:
         target = self.window._current_target()
         if not target:
             return
-        cmd = self.preview.spawn_command(self.window._q(target), self.window._q(self.current_string()))
+        s = self.current_string()
+        cmd = self.preview.spawn_command(self.window._q(target), self.window._q(s))
 
         def done(_rs, rd):
             n = self.preview.record(rd)
             self._log("[String Tool] Spawned %d preview item(s) for %s.\n" % (n, target) if n else
                       "[String Tool] The server didn't spawn it. Check the console output above.\n", "ok" if n else "err")
+        ws = getattr(self.window, "_ws_client", None)
+        if len(s) > LONG_STRING and hasattr(ws, "send_capture"):
+            # TavernKeeper prints every command whole in its console box, and Tk freezes for a long time laying out
+            # one line hundreds of thousands of characters long. Send it ourselves and log a short line instead.
+            short = self.preview.spawn_command(self.window._q(target), "<%s-character string>" % format(len(s), ","))
+            self._log("> %s\n" % short, "cyan")
+
+            reply = []
+
+            def worker():
+                rs, rd, _err = ws.send_capture(cmd, timeout=60.0)
+                reply.append((rs, rd))
+
+            def check():  # Tk is only touched from the window's own thread
+                if reply:
+                    done(*reply[0])
+                    return
+                try:
+                    self.frame.after(100, check)
+                except tk.TclError:
+                    pass  # the window closed meanwhile
+            threading.Thread(target=worker, daemon=True).start()
+            self.frame.after(100, check)
+            return
         self.window._send_and_capture(cmd, done, max_wait=60.0)  # big strings can take a while to spawn
 
     def clear_preview(self):
