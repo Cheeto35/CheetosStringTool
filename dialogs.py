@@ -46,8 +46,11 @@ class MaterialPalette:
         self.tab, self.on_pick, self.on_name = tab, on_pick, on_name
         self.frame = tk.Frame(parent, bg=SURF)
         self.q = tk.StringVar()
-        e = _entry(self.frame, self.q, font=("Segoe UI", 9))
-        e.pack(fill="x", padx=4, pady=(4, 2))
+        top_row = tk.Frame(self.frame, bg=SURF)
+        top_row.pack(fill="x", padx=4, pady=(4, 2))
+        _btn(top_row, "Add a material…", self._add, font=("Segoe UI", 8), pady=1, padx=6).pack(side="right", padx=(4, 0))
+        e = _entry(top_row, self.q, font=("Segoe UI", 9))
+        e.pack(side="left", fill="x", expand=True)
         self.q.trace_add("write", lambda *_: self.fill())
         box = tk.Frame(self.frame, bg=SURF)
         box.pack(fill="both", expand=True, padx=4, pady=(0, 4))
@@ -74,7 +77,10 @@ class MaterialPalette:
         c = self.canvas
         c.delete("all")
         words = self.q.get().lower().split()
-        self.rows = [(h, n) for h, n in self.tab.cat.materials() if all(w in n.lower() for w in words)]
+        cat = self.tab.cat
+        self.rows = [(h, n + ("   · %s" % cat.material_mod(h) if cat.material_mod(h) else ""))
+                     for h, n in cat.materials()]
+        self.rows = [(h, n) for h, n in self.rows if all(w in n.lower() for w in words)]
         self.rows += [(h, "Unknown #%d  (click to name it)" % h) for h in self.unknown
                       if not self.tab.cat.knows_material(h)]
         w = max(c.winfo_width(), 220)
@@ -91,6 +97,11 @@ class MaterialPalette:
             c.create_text(34, y + self.ROW / 2 - 1, text=n, anchor="w", fill="#ffd080" if sel else PARCH,
                           font=("Segoe UI", 9))
         c.config(scrollregion=(0, 0, w, len(self.rows) * self.ROW))
+
+    def _add(self):
+        h = self.tab.add_material(parent=self.frame.winfo_toplevel())
+        self._icons.pop(h, None)
+        self.fill()
 
     def _click(self, ev):
         i = int(self.canvas.canvasy(ev.y) // self.ROW)

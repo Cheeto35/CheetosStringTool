@@ -12,6 +12,7 @@ from tavern_shared.theme import AMBER, AMBERDIM, BG, BORDER, GREEN, MONO, MUTED,
 from tavern_shared.window_chrome import _finish_dark_window, _set_window_icon, _start_hidden
 
 from . import attributes, components, dialogs, edits, layout2d, library, liveinfo, render2d
+from . import catalog as catalog_module
 from .catalog import Catalog
 from .preview import PreviewTracker
 from .visuals import Visuals
@@ -86,6 +87,7 @@ def get_visuals():
     global _visuals
     if _visuals is None:
         _visuals = Visuals.load(VISUALS)
+        get_catalog().alias_swatches(_visuals)
     return _visuals
 
 
@@ -302,6 +304,7 @@ class StringBuilderTab:
                                     state="readonly", style="SB.TCombobox", font=("Segoe UI", 9))
         self.mat_box.pack(side="left", fill="x", expand=True)
         self.mat_box.bind("<<ComboboxSelected>>", lambda e: self._apply_material())
+        _btn(row, "Add…", self.add_material, font=("Segoe UI", 8), pady=1, padx=6).pack(side="left", padx=(4, 0))
         row2 = tk.Frame(props, bg=SURF)
         row2.pack(fill="x", pady=2)
         _label(row2, "Item scale", fg=MUTED, bg=SURF, font=("Segoe UI", 8), width=8, anchor="w").pack(side="left")
@@ -758,6 +761,32 @@ class StringBuilderTab:
         self.mat_box.config(values=[n for _, n in self._materials])
         self.refresh()
 
+    def add_material_by_number(self, text, name):
+        """Adds a material (from a mod) by its number and a name; the number, or None if it isn't one."""
+        h = catalog_module.parse_material_number(text)
+        if h is None or not (name or "").strip():
+            return None
+        self.name_material(h, name.strip())
+        return h
+
+    def add_material(self, parent=None):
+        """Asks for a mod material's number and name, so it can be picked like any other material."""
+        parent = parent or self.frame
+        text = simpledialog.askstring(
+            "Add a material", "The material's number (from the mod, or from a string that uses it).\n"
+            "Servers with the String Tool helper mod list their mod materials by themselves.", parent=parent)
+        if text is None:
+            return None
+        h = catalog_module.parse_material_number(text)
+        if h is None:
+            _info("Not a material number", "That isn't a material number. It's a whole number, like 1276475934.",
+                  parent=parent)
+            return None
+        known = self.cat.knows_material(h)
+        name = simpledialog.askstring("Add a material", "What is material #%d called?" % h, parent=parent,
+                                      initialvalue=self.cat.material_short(h) if known else "")
+        return self.add_material_by_number(str(h), name) if name else None
+
     # ---- the connected server's own lists ------------------------------------------------------
     def _host(self):
         v = getattr(self.window, "v_host", None)
@@ -802,7 +831,8 @@ class StringBuilderTab:
         step(0)
 
     def _finish_sync(self, host, replies):
-        live = liveinfo.parse(replies.get("spawn infodump"), replies.get("repair-box list-items"))
+        live = liveinfo.parse(replies.get("spawn infodump"), replies.get("repair-box list-items"),
+                              replies.get("stringtool materials"))
         if not live["prefabs"]:
             cached = liveinfo.load_cache(liveinfo.cache_path(_data_dir(), host))
             if not cached:
@@ -818,12 +848,15 @@ class StringBuilderTab:
         global _catalog
         cat = fresh_catalog()
         cat.apply_live(live)
+        cat.alias_swatches(self.vis)
         _catalog = self.cat = cat
         self._materials = [(None, "(none)")] + cat.materials()
         self.mat_box.config(values=[n for _, n in self._materials])
         new = sum(1 for p in cat.prefabs.values() if p.get("live_only"))
-        self.sync_label.config(text="Items: from %s, %d items%s%s" % (
-            host, len(live["prefabs"]), (", %d new" % new) if new else "", note), fg=GREEN)
+        mods = sum(1 for h, _n in cat.materials() if cat.material_mod(h) == catalog_module.SERVER_MOD)
+        self.sync_label.config(text="Items: from %s, %d items%s%s%s" % (
+            host, len(live["prefabs"]), (", %d new" % new) if new else "",
+            (", %d mod material%s" % (mods, "" if mods == 1 else "s")) if mods else "", note), fg=GREEN)
         self.refresh()
 
     def _apply_dock(self):

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.0
+
+- Mod materials. CrystalLeather's crystal leathers are built in, drawn in their own colours.
+- New server helper mod, CheetosStringToolHelper.dll. With it on the server, the addon lists every material the server has, from any mod, by name.
+- Add a material by its number and a name, for servers without the helper.
+
 ## 1.0.0
 
 First release.

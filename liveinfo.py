@@ -3,17 +3,19 @@
 Two vanilla commands give it:
   spawn infodump          every spawnable item, its parts in the game's order, and what each part saves
   repair-box list-items   the item types a dock can hold
-parse() turns their replies into the dict Catalog.apply_live() takes; it is cached per server. Materials have no
-command that gives their numbers, so modded ones are named by the player when a string uses one (named_materials).
+The game has no command that lists material numbers, so a third one comes from the String Tool's helper mod:
+  stringtool materials    every material on the server, mods included, with its number and the look it copies
+Servers without the helper answer "Command not found"; then mod materials are named by the player instead
+(named_materials). parse() turns the replies into the dict Catalog.apply_live() takes; it is cached per server.
 """
 import json
 import os
 from typing import List, Optional
 
-COMMANDS = ("spawn infodump", "repair-box list-items")
+COMMANDS = ("spawn infodump", "repair-box list-items", "stringtool materials")
 
 
-def parse(infodump, list_items) -> dict:
+def parse(infodump, list_items, materials=None) -> dict:
     prefabs = []
     for p in infodump or []:
         try:
@@ -28,7 +30,13 @@ def parse(infodump, list_items) -> dict:
             types.append([int(i["Hash"]), str(i["Name"])])
         except (KeyError, TypeError, ValueError):
             continue
-    return {"prefabs": prefabs, "item_types": types}
+    mats = []
+    for m in materials if isinstance(materials, list) else []:
+        try:
+            mats.append([int(m["Hash"]), str(m["Name"]), str(m.get("Looks") or "")])
+        except (KeyError, TypeError, ValueError):
+            continue
+    return {"prefabs": prefabs, "item_types": types, "materials": mats}
 
 
 def cache_path(data_dir: str, host: str) -> str:

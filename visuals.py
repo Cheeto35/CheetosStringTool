@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageOps
 except ImportError:  # no Pillow: plain colours only
-    Image = None
+    Image = ImageOps = None
 
 
 @dataclass
@@ -49,6 +49,7 @@ class Visuals:
         self._prefabs: Dict[str, list] = data.get("prefabs", {})
         self._parts: Dict[int, List[Part]] = {}
         self._swatches: Dict[int, object] = {}
+        self._aliases: Dict[int, Tuple[Optional[int], Optional[str]]] = {}
 
     @classmethod
     def load(cls, path: str) -> "Visuals":
@@ -74,9 +75,20 @@ class Visuals:
     def has(self, prefab_h: int) -> bool:
         return str(prefab_h) in self._prefabs
 
+    def alias(self, h: int, copies: Optional[int], colour: Optional[str] = None) -> None:
+        """Draws material h (from a mod) like the game material it copies, recoloured when it has its own colour."""
+        if h not in self._materials:
+            self._aliases[h] = (copies, colour)
+            self._swatches.pop(h, None)
+
     def material_color(self, h: int) -> Optional[str]:
         m = self._materials.get(h)
-        return m[1] if m else None
+        if m:
+            return m[1]
+        if h in self._aliases:
+            copies, colour = self._aliases[h]
+            return colour or (self.material_color(copies) if copies in self._materials else None)
+        return None
 
     def swatch(self, h: int):
         """The material's 32x32 texture swatch (a PIL image), or None when unknown or Pillow is missing."""
@@ -84,7 +96,16 @@ class Visuals:
             return self._swatches[h]
         m = self._materials.get(h)
         img = None
-        if m and Image is not None:
+        if m is None and h in self._aliases and Image is not None:
+            copies, colour = self._aliases[h]
+            base = self.swatch(copies) if copies in self._materials else None
+            if base is not None and colour:
+                img = ImageOps.colorize(ImageOps.autocontrast(base.convert("L")), "#000000", "#ffffff", mid=colour)
+            elif base is not None:
+                img = base
+            elif colour:
+                img = Image.new("RGB", (32, 32), colour)
+        elif m and Image is not None:
             if m[2]:
                 img = Image.open(io.BytesIO(base64.b64decode(m[2]))).convert("RGB")
             else:

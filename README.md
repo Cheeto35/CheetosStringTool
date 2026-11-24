@@ -39,6 +39,16 @@ You don't have to edit any code. Pick a base item, pick a slot, attach something
 | **Paste string** | Loads a string from your clipboard, so you can open and edit strings you already have. |
 | **My strings** | The built-in collection plus your own saved strings. Search them, load one, or save what you're working on. |
 
+## Mod materials
+
+Materials added by mods can be picked like any other material. Mod materials show which mod they come from in the materials list.
+
+- **CrystalLeather**'s blue, green and purple crystal leathers are built in.
+- **Any other mod:** put `CheetosStringToolHelper.dll` (from the releases page) in your server's `Mods` folder and restart the server. When TavernKeeper connects, the addon asks the server for every material it has, mods included, and lists them by name. The game has no command for this on its own, which is what the helper adds (`stringtool materials`).
+- **Without the helper**, click **Add…** next to Material, or **Add a material…** in the Materials window, and type the material's number and a name. If a string you load uses a material the addon doesn't know, it shows as "Unknown #number"; click it to name it. Names you give are kept on your PC.
+
+The helper only adds that one command and doesn't change anything else on the server.
+
 ## The built-in strings
 
 The addon comes with almost 200 of my strings to load, spawn and pull apart: weapons, bags, potions, stakes and more. A few old strings that no longer work in the current game were left out.
@@ -48,7 +58,6 @@ The addon comes with almost 200 of my strings to load, spawn and pull apart: wea
 - **Spawn strings with `spawn string <player> <string>`, not `spawn string-raw`.** A raw spawn puts the item at the position saved inside the string, and for these strings that's the world origin, where nothing is loaded. The game then stores the item in the origin chunk's save file, and enough of them can crash the server when that chunk loads.
 - Strings you load are kept exactly as they were until you change them. Changed and new strings are saved in the current game's format.
 - The addon's own item data comes from game build main-1.7.2.1.42203, and it uses that until a server is connected. If a server has items the addon doesn't know, it shows a warning, and those items appear as "Unknown item #number" instead of breaking anything.
-- The game has no command that lists material numbers. If a string uses a material the addon doesn't know (from a mod), the piece editor shows it as "Unknown #number"; click it to give it a name, which is kept on your PC.
 - No game models are included. The 2D view draws each part from its size and outline, coloured with small swatches of the game's materials.
 
 ## Licence

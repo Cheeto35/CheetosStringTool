@@ -14,6 +14,25 @@ METAL_NAMES = {
     "Darksteel Alloy": "Darksteel",
 }
 
+# Materials from mods, known without asking the server: number -> (name, mod, colour, game material it's a copy of).
+# They're drawn as that game material's texture in their own colour.
+MOD_MATERIALS = {
+    0x4C157A1E: ("Crystal Leather", "CrystalLeather", "#00A0FF", 63538),
+    0x4C157A2E: ("Green Crystal Leather", "CrystalLeather", "#73CA00", 63538),
+    0x4C157A3E: ("Purple Crystal Leather", "CrystalLeather", "#C040FF", 63538),
+}
+SERVER_MOD = "a server mod"
+
+
+def parse_material_number(text: str) -> Optional[int]:
+    """A material number typed by the player: decimal, 0x hex, or with a leading #. None if it isn't one."""
+    t = (text or "").strip().lstrip("#").strip()
+    try:
+        n = int(t, 16) if t.lower().startswith("0x") else int(t)
+    except ValueError:
+        return None
+    return n if 0 < n <= 0xFFFFFFFF else None
+
 
 def _live_kind(name: str, saved: List[str]) -> str:
     """What a part the shipped data doesn't know is: a dock saves PickupDock; slots are named "Slot ..."."""
@@ -37,6 +56,13 @@ class Catalog:
         self.build = data.get("game_build", "?")
         self.prefabs: Dict[int, dict] = {int(h): p for h, p in data.get("prefabs", {}).items()}
         self._materials = {int(h): n for h, n in data.get("materials", {}).items()}
+        self._game_materials = set(self._materials)
+        self._mod_of: Dict[int, str] = {}
+        self._looks: Dict[int, Tuple[Optional[int], Optional[str]]] = {}  # mod material -> (copies, colour)
+        for h, (name, mod, colour, copies) in MOD_MATERIALS.items():
+            self._materials.setdefault(h, name)
+            self._mod_of[h] = mod
+            self._looks[h] = (copies, colour)
         self._components = {int(h): n for h, n in data.get("components", {}).items()}
         self._component_by_name = {n: h for h, n in self._components.items()}
         self._item_types = {int(h): n for h, n in data.get("item_types", {}).items()}
@@ -77,8 +103,33 @@ class Catalog:
             p["root_entity"] = embeds[0][0] if embeds else None
         if live.get("item_types"):
             self._item_types = {h: n for h, n in live["item_types"]}
+        self._apply_live_materials(live.get("materials") or [])
         self._sorted = sorted(self.prefabs.items(), key=lambda kv: kv[1]["name"].lower())
         self.live = True
+
+    def _apply_live_materials(self, mats) -> None:
+        """Every material on the server (from the String Tool helper mod); mod ones copy the look of a game one."""
+        game_look = {}
+        for h, _n, looks in mats:
+            if h in self._game_materials and looks:
+                game_look.setdefault(looks, h)
+        for h, name, looks in mats:
+            if h in self._game_materials:
+                continue
+            self._materials[h] = name
+            self._mod_of.setdefault(h, SERVER_MOD)
+            if h not in MOD_MATERIALS:
+                self._looks[h] = (game_look.get(looks), None)
+
+    def material_mod(self, h: int) -> Optional[str]:
+        """The mod a material comes from, or None for the game's own (and ones only named by the player)."""
+        return self._mod_of.get(h)
+
+    def alias_swatches(self, vis) -> None:
+        """Gives mod materials the texture of the game material they copy, in their own colour if they have one."""
+        for h, (copies, colour) in self._looks.items():
+            if copies is not None or colour:
+                vis.alias(h, copies, colour)
 
     def learn_material(self, name: str, h: int) -> None:
         """Names a material the shipped data doesn't know (a modded one, seen in a string)."""
