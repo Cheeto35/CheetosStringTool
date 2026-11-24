@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- Spawning a very long string (like a box packed with thousands of boxes) no longer freezes TavernKeeper. The console shows a short line instead of the whole string.
+
 ## 1.1.0
 
 - Mod materials. CrystalLeather's crystal leathers are built in, drawn in their own colours.
