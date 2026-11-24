@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.2
+
+- The String Tool tab now shows up in the downloaded TavernLauncher Client. Before, it only loaded when the launcher ran from source.
+
 ## 1.1.1
 
 - Spawning a very long string (like a box packed with thousands of boxes) no longer freezes TavernKeeper. The console shows a short line instead of the whole string.

@@ -13,7 +13,7 @@ You don't have to edit any code. Pick a base item, pick a slot, attach something
 
 ## Install
 
-1. Download `CheetosStringTool-1.1.1.zip` from the releases page.
+1. Download `CheetosStringTool-1.1.2.zip` from the releases page.
 2. Unzip it into the launcher's `addons` folder, so you end up with `addons/string_builder/client.py`.
 3. Open the launcher, open **Addons**, and tick **Cheetos String Tool**.
 4. Open TavernKeeper and connect to your server. A **String Tool** tab appears after Macros.
