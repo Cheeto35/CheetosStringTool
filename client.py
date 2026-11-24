@@ -6,7 +6,6 @@ import json
 import os
 import threading
 import tkinter as tk
-import tkinter.font as tkfont
 from tkinter import messagebox, simpledialog, ttk
 
 from tavern_shared.theme import AMBER, AMBERDIM, BG, BORDER, GREEN, MONO, MUTED, PARCH, RED, SURF, SURF2, _btn, _mk_scrollbar
@@ -596,12 +595,13 @@ class StringBuilderTab:
 
     def _fit_tree_width(self):
         """Makes the column as wide as the longest row (text plus indent) so long builds scroll sideways."""
-        font = tkfont.nametofont("TkDefaultFont")
+        # Tk's own "font measure": tkinter.font isn't bundled in the released TavernLauncher Client exe
+        measure = lambda text: int(self.tree.tk.call("font", "measure", "TkDefaultFont", text))
         widest = 0
         def walk(iid, depth):
             nonlocal widest
             for c in self.tree.get_children(iid):
-                widest = max(widest, font.measure(self.tree.item(c, "text")) + 20 * (depth + 1))
+                widest = max(widest, measure(self.tree.item(c, "text")) + 20 * (depth + 1))
                 walk(c, depth + 1)
         walk("", 0)
         self.tree.column("#0", minwidth=widest + 8, width=widest + 8, stretch=True)
